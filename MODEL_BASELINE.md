@@ -43,7 +43,7 @@ function greet(name) {
 * **Soru 3 (Patch Önerme):**
   * Süre/Hız Hissi: Çok hızlı.
   * Kalite: Başarılı. Class component kullanarak 2 saniye disable kalmasını sağlayan doğru bir React kodu yazdı.
-* **Genel Gözlem ve RAM Kullanımı (Activity Monitor):** Bellek yoğunluğu grafiği yeşil seviyelerde seyretti (kısa bir süre sarıya çıksa da sistemi yavaşlatmadı). Günlük kullanım için oldukça akıcı.
+* **Genel Gözlem ve RAM Kullanımı (Activity Monitor):** Bellek yoğunluğu grafiği tamamen yeşil seviyelerde seyretti. İlk çalıştırılan model olmasına rağmen sistemi hiç zorlamadı. Günlük kullanım için oldukça akıcı.
 
 ---
 
@@ -58,9 +58,9 @@ function greet(name) {
 * **Soru 3 (Patch Önerme):**
   * Süre/Hız Hissi: Çok hızlı.
   * Kalite: Başarılı. Modern React (Functional Component ve Hooks - `useState`, `useEffect`) kullanarak temiz bir çözüm üretti.
-* **Genel Gözlem ve RAM Kullanımı (Activity Monitor):** Bellek yoğunluğu yeşil seviyede. Sistemde hiçbir zorlanma yok. Çok hızlı ve pratik.
+* **Genel Gözlem ve RAM Kullanımı (Activity Monitor):** Bellek yoğunluğu grafiği sarı seviyeye çıktı. Ancak bunun sebebi 3B'nin daha ağır olması değil, Ollama'nın 7B modelini hala RAM'de tutarken üzerine 3B'yi yüklemeye çalışmasıydı. Buna rağmen herhangi bir takılma yaşanmadı ve çok hızlı cevap verdi.
 
 ---
 
 ## Karar (GO / NO-GO)
-* **Sonuç:** **GO!** 7B modeli M3 16GB makinede hem çok hızlı cevap veriyor hem de RAM'i kitlemiyor (sarı bölgeye geçişler olsa da takılma hissi yaratmıyor). İki modelin de kod kalitesi oldukça iyi (3B modeli React Hooks kullanarak biraz daha modern bir kod yazdı, ancak 7B'nin kapasitesi genel karmaşık görevler için daha uygun). **Projeye 7B ana model olarak devam edilebilir.**
+* **Sonuç:** **GO!** 7B modeli tek başına çalıştığında M3 16GB makinede RAM'i yeşil bölgede tutuyor ve çok hızlı cevap veriyor. Peş peşe iki model yüklendiğinde sarı bölgeye geçişler olsa da takılma hissi yaratmıyor. **Projeye 7B ana model olarak devam edilebilir.**
