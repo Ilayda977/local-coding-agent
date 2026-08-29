@@ -1,4 +1,5 @@
 import os
+import re
 
 # Ajanın dışarı çıkmasını engellemek için projenin ana klasörünün tam yolunu alıyoruz.
 # os.path.abspath('.') komutu, kodun çalıştığı klasörün (local-coding-agent) tam yolunu verir.
@@ -104,3 +105,42 @@ def search_code(query, directory="."):
         return f"Arama sonucu: '{query}' projedeki hiçbir dosyada bulunamadı."
         
     return "Bulunan sonuçlar:\n" + "\n".join(results)
+
+def find_symbol(symbol_name, directory="."):
+    """
+    Projede belirli bir fonksiyon, sınıf (class) veya değişkenin TANIMLANDIĞI (definition) yeri bulur.
+    Örn: 'def my_function' veya 'class User' gibi tanımlamaları arar.
+    Bu, search_code'dan farklı olarak kodun geçtiği her yeri değil, sadece asıl tanımlandığı yeri bulmak için kullanılır.
+    Ajanın dosyalar arasında kaybolmadan direkt hedefe gitmesini sağlar.
+    """
+    if not _is_safe_path(directory):
+        return "HATA: Güvenlik ihlali! Proje ana klasörü dışında arama yapamazsınız."
+        
+    results = []
+    
+    # Sadece tanımlamaları yakalamak için (Python ve JS/TS uyumlu basit bir regex şablonu)
+    # Örn: def kelime, class kelime, function kelime, const kelime
+    pattern = re.compile(rf'\b(?:def|class|function|const|let|var)\s+{symbol_name}\b', re.IGNORECASE)
+    
+    for root, _, files in os.walk(directory):
+        if '.git' in root or 'venv' in root or '__pycache__' in root:
+            continue
+            
+        for file_name in files:
+            if file_name.startswith('.'):
+                continue
+                
+            file_path = os.path.join(root, file_name)
+            
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    for line_number, line in enumerate(f, 1):
+                        if pattern.search(line):
+                            results.append(f"{file_path} (Satır {line_number}): {line.strip()}")
+            except Exception:
+                continue
+                
+    if not results:
+        return f"Sembol bulunamadı: Projede '{symbol_name}' adında bir fonksiyon, sınıf veya değişken tanımı bulunamadı."
+        
+    return "Bulunan sembol tanımları:\n" + "\n".join(results)
