@@ -40,6 +40,28 @@ def _display_path(path):
     return str(path.relative_to(PROJECT_ROOT)) or "."
 
 
+def _result_priority(file_path, line, query):
+    """Tanımı, diğer kaynak eşleşmelerini ve testleri bu sırayla gösterir."""
+    is_test_file = file_path.name.startswith("test_") or file_path.name.endswith("_test.py")
+    is_inside_tests_directory = "tests" in file_path.parts
+    is_test_result = 1 if is_test_file or is_inside_tests_directory else 0
+    stripped_line = line.strip()
+    is_definition = (
+        stripped_line.startswith(f"def {query}")
+        or stripped_line.startswith(f"class {query}")
+        or stripped_line.startswith(f"{query} =")
+    )
+    return (is_test_result, 0 if is_definition else 1)
+
+
+def _format_search_results(header, results):
+    """Sonuçları kaynak kod önceliğiyle, sınırlı ve deterministik biçimde döndürür."""
+    sorted_results = sorted(results, key=lambda item: (item[0], item[1]))
+    selected_results = [text for _, text in sorted_results[:MAX_SEARCH_RESULTS]]
+    limit_message = " (sonuç limiti uygulandı)" if len(results) > MAX_SEARCH_RESULTS else ""
+    return f"{header}{limit_message}:\n" + "\n".join(selected_results)
+
+
 def list_files(directory_path="."):
     """
     Belirtilen klasördeki dosya ve klasörlerin isimlerini listeler.
@@ -120,9 +142,12 @@ def search_code(query, directory="."):
                     for line_number, line in enumerate(f, 1):
                         if query in line:
                             # Bulduğumuzda dosya yolu ve satır numarasını listeye ekliyoruz
-                            results.append(f"{_display_path(file_path)} (Satır {line_number}): {line.strip()}")
-                            if len(results) >= MAX_SEARCH_RESULTS:
-                                return "Bulunan sonuçlar (sonuç limiti uygulandı):\n" + "\n".join(results)
+                            results.append(
+                                (
+                                    _result_priority(file_path, line, query),
+                                    f"{_display_path(file_path)} (Satır {line_number}): {line.strip()}",
+                                )
+                            )
             except (OSError, UnicodeDecodeError):
                 # Eğer dosya okunamıyorsa (örn: resim dosyasıysa) hatayı yoksayıp diğer dosyaya geç
                 continue
@@ -130,7 +155,7 @@ def search_code(query, directory="."):
     if not results:
         return f"Arama sonucu: '{query}' projedeki hiçbir dosyada bulunamadı."
         
-    return "Bulunan sonuçlar:\n" + "\n".join(results)
+    return _format_search_results("Bulunan sonuçlar", results)
 
 def find_symbol(symbol_name, directory="."):
     """
@@ -169,13 +194,16 @@ def find_symbol(symbol_name, directory="."):
                 with file_path.open('r', encoding='utf-8') as f:
                     for line_number, line in enumerate(f, 1):
                         if pattern.search(line):
-                            results.append(f"{_display_path(file_path)} (Satır {line_number}): {line.strip()}")
-                            if len(results) >= MAX_SEARCH_RESULTS:
-                                return "Bulunan sembol tanımları (sonuç limiti uygulandı):\n" + "\n".join(results)
+                            results.append(
+                                (
+                                    _result_priority(file_path, line, symbol_name),
+                                    f"{_display_path(file_path)} (Satır {line_number}): {line.strip()}",
+                                )
+                            )
             except (OSError, UnicodeDecodeError):
                 continue
                 
     if not results:
         return f"Sembol bulunamadı: Projede '{symbol_name}' adında bir fonksiyon, sınıf veya değişken tanımı bulunamadı."
         
-    return "Bulunan sembol tanımları:\n" + "\n".join(results)
+    return _format_search_results("Bulunan sembol tanımları", results)

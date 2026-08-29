@@ -26,6 +26,12 @@ class ReadOnlyToolTests(unittest.TestCase):
         self.assertIn("tools.py", result)
         self.assertNotIn(str(tools.PROJECT_ROOT), result)
 
+    def test_search_prioritizes_source_code_over_test_files(self):
+        result = tools.search_code("MAX_READ_LINES")
+        first_result_line = result.splitlines()[1]
+        self.assertIn("tools.py", first_result_line)
+        self.assertIn("MAX_READ_LINES = 80", first_result_line)
+
     def test_symbol_search_handles_regex_characters_safely(self):
         result = tools.find_symbol("(")
         self.assertIn("Sembol", result)

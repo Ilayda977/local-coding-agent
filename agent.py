@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 
 import ollama
@@ -101,11 +102,14 @@ Görevin, sana verilen sorunu (issue) çözmek için projeyi analiz etmektir.
 Bunun için sana verilen araçları (tools) kullanmalısın.
 
 KURALLAR (Context Engineering & Performans):
-1. Bütün projeyi okumaya çalışma! Önce 'list_files' ile klasörlere bak.
-2. Nereye bakacağını bilmiyorsan 'search_code' veya 'find_symbol' ile anahtar kelimeleri arat.
-3. Dosyaları okurken 'read_file' aracına mutlaka start_line ve end_line vererek sadece küçük parçalar oku (örn: 10 ile 50 arası). Bütün dosyayı okumak hafızanı doldurur ve yasaktır!
-4. Bir tool hata verirse hata mesajını dikkate al, aynı geçersiz isteği tekrarlama.
-5. Çözümü bulduğunda veya sorunun kaynağını anladığında arama yapmayı bırak ve bulgularını raporla.
+1. Bütün projeyi okumaya çalışma! Dosya yolu issue'da açıkça verilmediyse ilk adımın list_files veya search_code olmalı.
+2. read_file yalnızca daha önce list_files, search_code veya find_symbol sonucunda gördüğün gerçek bir dosya yolu için kullanılabilir. Kullanıcı cümlesindeki kelimeleri dosya adı uydurmak için kullanma.
+3. Nereye bakacağını bilmiyorsan issue'da geçen en özgül sembolü değişmeden search_code veya find_symbol ile ara. Örneğin MAX_READ_LINES isteniyorsa MAX_STEPS arama.
+4. Dosyaları okurken 'read_file' aracına mutlaka start_line ve end_line vererek sadece küçük parçalar oku (örn: 10 ile 50 arası). Bütün dosyayı okumak hafızanı doldurur ve yasaktır!
+5. Bir tool hata verirse hata mesajını dikkate al, aynı geçersiz isteği tekrarlama.
+6. Çözümü bulduğunda veya sorunun kaynağını anladığında arama yapmayı bırak ve bulgularını raporla.
+7. Yalnızca şu dört tool adını çağırabilirsin: list_files, read_file, search_code, find_symbol. Kod içindeki bir değişken, fonksiyon veya sınıf adı asla tool değildir; onu search_code veya find_symbol ile ara.
+8. Bir observation sorudaki tüm bilgileri içeriyorsa yeni tool çağrısı yapma; Türkçe, kısa bir final cevap yaz.
 """
 
 TOOL_HANDLERS = {
@@ -114,6 +118,43 @@ TOOL_HANDLERS = {
     "search_code": tools.search_code,
     "find_symbol": tools.find_symbol,
 }
+
+
+def extract_tool_calls(message):
+    """Ollama'nın native tool çağrılarını veya JSON olarak yazılmış fallback'i döndür."""
+    native_tool_calls = message.get("tool_calls")
+    if native_tool_calls:
+        return native_tool_calls
+
+    content = message.get("content", "").strip()
+    if content.startswith("```") and content.endswith("```"):
+        fenced_lines = content.splitlines()
+        if len(fenced_lines) >= 3:
+            content = "\n".join(fenced_lines[1:-1]).strip()
+
+    try:
+        parsed_content = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    if (
+        isinstance(parsed_content, dict)
+        and isinstance(parsed_content.get("name"), str)
+        and isinstance(parsed_content.get("arguments"), dict)
+    ):
+        return [{"function": parsed_content}]
+
+    return []
+
+
+def tool_call_signature(tool_name, tool_args):
+    """Read-only turda aynı çağrının tekrarlanıp tekrarlanmadığını belirler."""
+    return json.dumps(
+        {"name": tool_name, "arguments": tool_args},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
 
 # 3. KURAL: Controller ve Agent Loop
 # PDF Diyor ki: "Sistem, büyük problemi küçük kararlar dizisine dönüştürür. Uzun agent loop yok."
@@ -125,6 +166,7 @@ def run_agent(issue_text):
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Görev: {issue_text}\nLütfen araçlarını kullanarak bu sorunu araştır ve bulgularını paylaş."}
     ]
+    seen_tool_calls = set()
     
     for step in range(1, MAX_STEPS + 1):
         print(f"--- Adım {step}/{MAX_STEPS} ---")
@@ -147,21 +189,36 @@ def run_agent(issue_text):
         messages.append(message)
         
         # 4. KURAL: Tool Calling (Araç Çağırma) ve Observation (Gözlem Geri Bildirimi)
-        if message.get('tool_calls'):
-            for tool_call in message['tool_calls']:
+        tool_calls = extract_tool_calls(message)
+        if tool_calls and not message.get("tool_calls"):
+            print("[UYARI] Model tool çağrısını JSON metni olarak yazdı; controller çağrıyı işliyor.")
+        if tool_calls:
+            for tool_call in tool_calls:
                 tool_name = tool_call['function']['name']
                 tool_args = tool_call['function']['arguments']
                 
                 print(f"[AJAN ARAÇ KULLANIYOR] -> {tool_name}({tool_args})")
                 
                 handler = TOOL_HANDLERS.get(tool_name)
-                if handler is None:
-                    result = f"HATA: {tool_name} adında bir araç bulunamadı."
+                signature = tool_call_signature(tool_name, tool_args)
+                if signature in seen_tool_calls:
+                    result = (
+                        "HATA: Aynı tool çağrısı bu görevde daha önce çalıştırıldı. "
+                        "Önceki observation konuşma geçmişindedir; farklı bir geçerli tool seç "
+                        "veya final cevabı yaz."
+                    )
+                elif handler is None:
+                    result = (
+                        f"HATA: {tool_name} adında bir araç bulunamadı. "
+                        "Geçerli tool adları yalnızca list_files, read_file, search_code ve find_symbol'dur. "
+                        "Kod sembollerini search_code veya find_symbol ile ara."
+                    )
                 else:
                     try:
                         result = handler(**tool_args)
                     except TypeError as error:
                         result = f"HATA: Geçersiz araç parametreleri: {error}"
+                seen_tool_calls.add(signature)
                 
                 print(f"[ARAÇ SONUCU (Gözlem)] (100 karakter kesit): {str(result)[:100]}...\n")
                 
