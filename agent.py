@@ -1,5 +1,11 @@
+import argparse
+import os
+
 import ollama
 import tools
+
+MODEL_NAME = os.environ.get("LOCAL_CODING_AGENT_MODEL", "qwen2.5-coder:7b")
+MAX_STEPS = 8
 
 # 1. KURAL: Tool schema & Tool açıklamaları
 # PDF Diyor ki: "Search tool kalitesi, tool açıklamaları... projenin asıl mühendislik alanıdır."
@@ -27,7 +33,7 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Bir dosyanın içeriğini okur. Modelin hafızasını şişirmemek için start_line ve end_line kullanmalısınız.",
+            "description": "Bir metin dosyasından en fazla 80 satırlık bir aralığı okur. Tüm dosyayı okumak yasaktır.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -37,14 +43,15 @@ AGENT_TOOLS = [
                     },
                     "start_line": {
                         "type": "integer",
-                        "description": "Okumaya başlanacak satır numarası (Opsiyonel ama önerilir)."
+                        "description": "Okumaya başlanacak satır numarası (zorunlu)."
                     },
                     "end_line": {
                         "type": "integer",
-                        "description": "Okumanın bitirileceği satır numarası (Opsiyonel ama önerilir)."
+                        "description": "Okumanın bitirileceği satır numarası (zorunlu; başlangıçtan en fazla 79 satır sonrası)."
                     }
                 },
-                "required": ["file_path"]
+                "required": ["file_path", "start_line", "end_line"],
+                "additionalProperties": False
             }
         }
     },
@@ -97,8 +104,16 @@ KURALLAR (Context Engineering & Performans):
 1. Bütün projeyi okumaya çalışma! Önce 'list_files' ile klasörlere bak.
 2. Nereye bakacağını bilmiyorsan 'search_code' veya 'find_symbol' ile anahtar kelimeleri arat.
 3. Dosyaları okurken 'read_file' aracına mutlaka start_line ve end_line vererek sadece küçük parçalar oku (örn: 10 ile 50 arası). Bütün dosyayı okumak hafızanı doldurur ve yasaktır!
-4. Çözümü bulduğunda veya sorunun kaynağını anladığında arama yapmayı bırak ve bulgularını raporla.
+4. Bir tool hata verirse hata mesajını dikkate al, aynı geçersiz isteği tekrarlama.
+5. Çözümü bulduğunda veya sorunun kaynağını anladığında arama yapmayı bırak ve bulgularını raporla.
 """
+
+TOOL_HANDLERS = {
+    "list_files": tools.list_files,
+    "read_file": tools.read_file,
+    "search_code": tools.search_code,
+    "find_symbol": tools.find_symbol,
+}
 
 # 3. KURAL: Controller ve Agent Loop
 # PDF Diyor ki: "Sistem, büyük problemi küçük kararlar dizisine dönüştürür. Uzun agent loop yok."
@@ -111,18 +126,22 @@ def run_agent(issue_text):
         {"role": "user", "content": f"Görev: {issue_text}\nLütfen araçlarını kullanarak bu sorunu araştır ve bulgularını paylaş."}
     ]
     
-    # PDF KURALI: Uzun agent loop yok. 6-10 step gibi küçük limitlerle başlanır.
-    MAX_STEPS = 8 
-    
     for step in range(1, MAX_STEPS + 1):
         print(f"--- Adım {step}/{MAX_STEPS} ---")
         
         # Ollama ile Qwen 7B modeline soruyu ve kullanabileceği alet çantasını (Tools) yolluyoruz.
-        response = ollama.chat(
-            model='qwen2.5-coder:7b',
-            messages=messages,
-            tools=AGENT_TOOLS
-        )
+        try:
+            response = ollama.chat(
+                model=MODEL_NAME,
+                messages=messages,
+                tools=AGENT_TOOLS,
+            )
+        except ConnectionError:
+            print(
+                "[HATA] Ollama'ya bağlanılamadı. Ollama uygulamasını açın veya "
+                "terminalde 'ollama serve' çalıştırın; ardından aynı komutu yeniden deneyin."
+            )
+            return
         
         message = response['message']
         messages.append(message)
@@ -135,17 +154,14 @@ def run_agent(issue_text):
                 
                 print(f"[AJAN ARAÇ KULLANIYOR] -> {tool_name}({tool_args})")
                 
-                # Ajanın istediği aracı tools.py'den bulup çalıştırıyoruz
-                if tool_name == 'list_files':
-                    result = tools.list_files(**tool_args)
-                elif tool_name == 'read_file':
-                    result = tools.read_file(**tool_args)
-                elif tool_name == 'search_code':
-                    result = tools.search_code(**tool_args)
-                elif tool_name == 'find_symbol':
-                    result = tools.find_symbol(**tool_args)
-                else:
+                handler = TOOL_HANDLERS.get(tool_name)
+                if handler is None:
                     result = f"HATA: {tool_name} adında bir araç bulunamadı."
+                else:
+                    try:
+                        result = handler(**tool_args)
+                    except TypeError as error:
+                        result = f"HATA: Geçersiz araç parametreleri: {error}"
                 
                 print(f"[ARAÇ SONUCU (Gözlem)] (100 karakter kesit): {str(result)[:100]}...\n")
                 
@@ -168,6 +184,7 @@ def run_agent(issue_text):
         print("\n[UYARI] Ajan adım sınırına ulaştı (Max Steps). İşlem otomatik durduruldu.")
 
 if __name__ == "__main__":
-    # Test için örnek bir "Issue" veriyoruz.
-    ornek_gorev = "Projemizde qwen2.5-coder:7b kelimesinin hangi dosyalarda geçtiğini bulur musun? Lütfen arama yapıp sonucu söyle."
-    run_agent(ornek_gorev)
+    parser = argparse.ArgumentParser(description="Read-only Local Coding Agent")
+    parser.add_argument("issue", help="Ajanın araştıracağı issue metni")
+    args = parser.parse_args()
+    run_agent(args.issue)

@@ -1,21 +1,43 @@
 import os
 import re
+from pathlib import Path
 
-# Ajanın dışarı çıkmasını engellemek için projenin ana klasörünün tam yolunu alıyoruz.
-# os.path.abspath('.') komutu, kodun çalıştığı klasörün (local-coding-agent) tam yolunu verir.
-PROJECT_ROOT = os.path.abspath('.')
+# Güvenlik sınırı, komutun hangi klasörden çalıştırıldığına değil bu dosyanın
+# bulunduğu proje klasörüne bağlıdır.
+PROJECT_ROOT = Path(__file__).resolve().parent
+MAX_READ_LINES = 80
+MAX_SEARCH_RESULTS = 50
+EXCLUDED_DIRECTORIES = {".git", "venv", "__pycache__"}
+
+
+def _resolve_safe_path(target_path):
+    """Kullanıcı yolunu çöz ve yalnızca proje içindeyse Path olarak döndür."""
+    try:
+        candidate = Path(target_path)
+        if not candidate.is_absolute():
+            candidate = PROJECT_ROOT / candidate
+        resolved_path = candidate.resolve()
+        resolved_path.relative_to(PROJECT_ROOT)
+        return resolved_path
+    except (TypeError, ValueError, OSError):
+        return None
+
 
 def _is_safe_path(target_path):
     """
     Güvenlik Kontrolü (Filesystem Boundary):
     Ajanın verdiği yolun, bizim belirlediğimiz proje klasörünün içinde kalıp kalmadığını kontrol eder.
     Böylece ajan gidip Masaüstü'nü veya sistem dosyalarını okuyamaz.
+
+    ``Path.relative_to`` kullanımı, ``/proje`` ile ``/proje-kopya`` gibi
+    ortak önek taşıyan ama proje dışında kalan yolları güvenli biçimde reddeder.
     """
-    # Gelen yolu tam ve mutlak (absolute) yola çevir
-    absolute_target_path = os.path.abspath(target_path)
-    
-    # Eğer oluşturulan mutlak yol, bizim ana projemizin yolu ile başlıyorsa güvenlidir.
-    return absolute_target_path.startswith(PROJECT_ROOT)
+    return _resolve_safe_path(target_path) is not None
+
+
+def _display_path(path):
+    """Modelin gereksiz mutlak yol görmemesi için proje-içi yolu göster."""
+    return str(path.relative_to(PROJECT_ROOT)) or "."
 
 
 def list_files(directory_path="."):
@@ -23,81 +45,85 @@ def list_files(directory_path="."):
     Belirtilen klasördeki dosya ve klasörlerin isimlerini listeler.
     Ajan projede nelerin olduğunu görmek için bunu kullanacak.
     """
-    if not _is_safe_path(directory_path):
+    directory = _resolve_safe_path(directory_path)
+    if directory is None:
         return "HATA: Güvenlik ihlali! Proje ana klasörü dışındaki bir dizini listeleyemezsiniz."
-    
-    try:
-        # os.listdir klasördeki dosyaları liste halinde verir
-        files = os.listdir(directory_path)
-        
-        # Git klasörü, sanal ortam gibi gereksiz veya gizli dosyaları gizleyelim ki ajanın kafası karışmasın
-        safe_files = [f for f in files if not f.startswith('.') and f != "venv" and f != "__pycache__"]
-        
-        return f"{directory_path} içindeki dosyalar:\n" + "\n".join(safe_files)
-    
-    except FileNotFoundError:
-        return f"HATA: {directory_path} adında bir klasör bulunamadı."
-    except Exception as e:
-        return f"HATA: Klasör listelenirken bir sorun oluştu: {str(e)}"
+    if not directory.is_dir():
+        return f"HATA: {_display_path(directory)} bir klasör değil veya bulunamadı."
+
+    entries = sorted(
+        entry.name
+        for entry in directory.iterdir()
+        if not entry.name.startswith(".") and entry.name not in EXCLUDED_DIRECTORIES
+    )
+    return f"{_display_path(directory)} içindeki dosya ve klasörler:\n" + "\n".join(entries)
 
 
-def read_file(file_path, start_line=None, end_line=None):
+def read_file(file_path, start_line, end_line):
     """
     Belirtilen dosyanın içeriğini okur. 
     Eğer start_line ve end_line verilirse, sadece o satırlar arasını okur.
     Bu, Context Length (Hafıza) sınırını aşmamak için çok önemlidir.
     """
-    if not _is_safe_path(file_path):
+    path = _resolve_safe_path(file_path)
+    if path is None:
         return "HATA: Güvenlik ihlali! Proje ana klasörü dışındaki bir dosyayı okuyamazsınız."
-    
+    if not path.is_file():
+        return f"HATA: {_display_path(path)} bir dosya değil veya bulunamadı."
+    if not isinstance(start_line, int) or not isinstance(end_line, int):
+        return "HATA: start_line ve end_line pozitif tam sayı olmalıdır."
+    if start_line < 1 or end_line < start_line:
+        return "HATA: Satır aralığı geçersiz. 1 <= start_line <= end_line olmalıdır."
+    if end_line - start_line + 1 > MAX_READ_LINES:
+        return f"HATA: Tek okumada en fazla {MAX_READ_LINES} satır istenebilir."
+
     try:
-        with open(file_path, 'r', encoding='utf-8') as file:
+        with path.open("r", encoding="utf-8") as file:
             lines = file.readlines()
-            
-        # Eğer ajan satır numarası vermediyse tüm dosyayı göster, verdiyse sadece o aralığı kes.
-        # Python'da listeler 0'dan başladığı için satır numaralarından 1 çıkarıyoruz.
-        if start_line is not None and end_line is not None:
-            # Örn: start_line=5, end_line=10 ise -> lines[4:10] (5. satırdan 10. satıra kadar)
-            lines = lines[start_line-1 : end_line]
-            
-        return "".join(lines)
-        
-    except FileNotFoundError:
-        return f"HATA: {file_path} adında bir dosya bulunamadı."
-    except Exception as e:
-        return f"HATA: Dosya okunurken bir sorun oluştu: {str(e)}"
+        selected_lines = lines[start_line - 1:end_line]
+        return "".join(selected_lines)
+    except UnicodeDecodeError:
+        return f"HATA: {_display_path(path)} metin dosyası olarak okunamadı."
+    except OSError as error:
+        return f"HATA: Dosya okunurken sorun oluştu: {error}"
 
 def search_code(query, directory="."):
     """
     Projedeki tüm Python, JS vb. kaynak kod dosyalarının içinde belirli bir kelimeyi/kodu arar.
     Örn: search_code('def reverse_string') -> Bu fonksiyonun hangi dosyada geçtiğini bulur.
     """
-    if not _is_safe_path(directory):
+    search_directory = _resolve_safe_path(directory)
+    if search_directory is None:
         return "HATA: Güvenlik ihlali! Proje ana klasörü dışında arama yapamazsınız."
+    if not search_directory.is_dir():
+        return f"HATA: {_display_path(search_directory)} bir klasör değil veya bulunamadı."
+    if not isinstance(query, str) or not query.strip():
+        return "HATA: Arama sorgusu boş olamaz."
     
     results = []
     
     # os.walk klasörlerin içine girerek tüm dosyaları sırayla gezmemizi sağlar
-    for root, _, files in os.walk(directory):
+    for root, directories, files in os.walk(search_directory):
         # Eğer şu anki klasör gizli bir klasörse veya venv ise onu atla (hız için)
-        if '.git' in root or 'venv' in root or '__pycache__' in root:
-            continue
+        directories[:] = [name for name in directories if name not in EXCLUDED_DIRECTORIES and not name.startswith(".")]
             
         for file_name in files:
             # Sadece uzantısı olan text/kod dosyalarında arama yapalım (resim dosyalarını falan atlamak için)
             if file_name.startswith('.'):
                 continue
                 
-            file_path = os.path.join(root, file_name)
+            file_path = Path(root) / file_name
             
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with file_path.open('r', encoding='utf-8') as f:
                     # Dosyadaki her bir satırı numarasıyla (enumerate) birlikte kontrol ediyoruz
                     for line_number, line in enumerate(f, 1):
                         if query in line:
                             # Bulduğumuzda dosya yolu ve satır numarasını listeye ekliyoruz
-                            results.append(f"{file_path} (Satır {line_number}): {line.strip()}")
-            except Exception:
+                            results.append(f"{_display_path(file_path)} (Satır {line_number}): {line.strip()}")
+                            if len(results) >= MAX_SEARCH_RESULTS:
+                                return "Bulunan sonuçlar (sonuç limiti uygulandı):\n" + "\n".join(results)
+            except (OSError, UnicodeDecodeError):
                 # Eğer dosya okunamıyorsa (örn: resim dosyasıysa) hatayı yoksayıp diğer dosyaya geç
                 continue
                 
@@ -113,31 +139,40 @@ def find_symbol(symbol_name, directory="."):
     Bu, search_code'dan farklı olarak kodun geçtiği her yeri değil, sadece asıl tanımlandığı yeri bulmak için kullanılır.
     Ajanın dosyalar arasında kaybolmadan direkt hedefe gitmesini sağlar.
     """
-    if not _is_safe_path(directory):
+    search_directory = _resolve_safe_path(directory)
+    if search_directory is None:
         return "HATA: Güvenlik ihlali! Proje ana klasörü dışında arama yapamazsınız."
+    if not search_directory.is_dir():
+        return f"HATA: {_display_path(search_directory)} bir klasör değil veya bulunamadı."
+    if not isinstance(symbol_name, str) or not symbol_name.strip():
+        return "HATA: Sembol adı boş olamaz."
         
     results = []
     
     # Sadece tanımlamaları yakalamak için (Python ve JS/TS uyumlu basit bir regex şablonu)
     # Örn: def kelime, class kelime, function kelime, const kelime
-    pattern = re.compile(rf'\b(?:def|class|function|const|let|var)\s+{symbol_name}\b', re.IGNORECASE)
+    pattern = re.compile(
+        rf'\b(?:def|class|function|const|let|var)\s+{re.escape(symbol_name)}\b',
+        re.IGNORECASE,
+    )
     
-    for root, _, files in os.walk(directory):
-        if '.git' in root or 'venv' in root or '__pycache__' in root:
-            continue
+    for root, directories, files in os.walk(search_directory):
+        directories[:] = [name for name in directories if name not in EXCLUDED_DIRECTORIES and not name.startswith(".")]
             
         for file_name in files:
             if file_name.startswith('.'):
                 continue
                 
-            file_path = os.path.join(root, file_name)
+            file_path = Path(root) / file_name
             
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with file_path.open('r', encoding='utf-8') as f:
                     for line_number, line in enumerate(f, 1):
                         if pattern.search(line):
-                            results.append(f"{file_path} (Satır {line_number}): {line.strip()}")
-            except Exception:
+                            results.append(f"{_display_path(file_path)} (Satır {line_number}): {line.strip()}")
+                            if len(results) >= MAX_SEARCH_RESULTS:
+                                return "Bulunan sembol tanımları (sonuç limiti uygulandı):\n" + "\n".join(results)
+            except (OSError, UnicodeDecodeError):
                 continue
                 
     if not results:
