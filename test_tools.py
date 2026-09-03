@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 import tools
 
@@ -26,15 +27,52 @@ class ReadOnlyToolTests(unittest.TestCase):
         self.assertIn("tools.py", result)
         self.assertNotIn(str(tools.PROJECT_ROOT), result)
 
+    def test_search_has_case_insensitive_fallback_for_natural_casing(self):
+        result = tools.search_code("QWEN2.5-CODER:7B")
+        self.assertIn("agent.py", result)
+        self.assertIn("qwen2.5-coder:7b", result)
+
     def test_search_prioritizes_source_code_over_test_files(self):
         result = tools.search_code("MAX_READ_LINES")
         first_result_line = result.splitlines()[1]
         self.assertIn("tools.py", first_result_line)
         self.assertIn("MAX_READ_LINES = 80", first_result_line)
 
+    def test_search_prioritizes_runtime_text_over_comment_mentions(self):
+        implementation = tools._result_priority(
+            Path("runtime.py"), 'MODEL = "local-engine"', "local-engine",
+        )
+        comment = tools._result_priority(
+            Path("runtime.py"), "# local-engine is only an example", "local-engine",
+        )
+        self.assertLess(implementation, comment)
+
     def test_symbol_search_handles_regex_characters_safely(self):
         result = tools.find_symbol("(")
         self.assertIn("Sembol", result)
+
+    def test_find_file_searches_the_path_not_file_contents(self):
+        result = tools.find_file("agent.py")
+        self.assertIn("agent.py (Satır 1)", result)
+        self.assertNotIn("README.md", result)
+
+    def test_find_references_excludes_definition_and_docs(self):
+        result = tools.find_references("MODEL_NAME")
+        self.assertIn("agent.py", result)
+        self.assertIn("MODEL_NAME, think=MODEL_THINK, fast_model_name=FAST_MODEL_NAME", result)
+        self.assertNotIn("qwen2.5-coder:7b", result)
+        self.assertNotIn("README.md", result)
+
+    def test_find_calls_returns_real_python_call_sites(self):
+        result = tools.find_calls("chat")
+        self.assertIn("protocol.py", result)
+        self.assertIn("response = chat(", result)
+        self.assertNotIn("README.md", result)
+
+    def test_find_tests_returns_the_test_function_that_uses_a_symbol(self):
+        result = tools.find_tests("tool_call_signature")
+        self.assertIn("test_protocol.py", result)
+        self.assertIn("test_signature_is_key_order_independent", result)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 """Aşama başına küçük JSON sözleşmeleri. Kaynak dosyası/satırı modelden alınmaz."""
 import json
 import os

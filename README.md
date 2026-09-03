@@ -4,6 +4,12 @@ Küçük bir yerel dil modelini, tüm repository'yi context'e yüklemeden kod ta
 
 Bu çalışma, güçlü bir bulut modelini kopyalamayı hedeflemez. Amaç; Apple M3, 16 GB unified memory üzerinde çalışan küçük bir coding modelinin doğru tool tasarımı, context engineering ve controller guardrail'leri ile repository seviyesindeki kod görevlerinde ne kadar kullanılabilir hale getirilebileceğini ölçmektir.
 
+## Güncel Durum: Faz 2 Devam Ediyor
+
+Controller, araştırmayı açık aşamalarla yönetir. Model arama hedeflerini ve kaynak adaylarını seçer; controller gerçekten okunan koddan kanıt blokları, dosya yolları, satır aralıkları ve alıntılar üretir. Policy içinde örnek soruların cevapları veya belirli bir hedef dosyaya yönlendirme yoktur.
+
+129 otomatik test geçmektedir; bunlar modelin görev başarısı değildir. Gerçek model denemeleri hâlâ araştırma kararı, zaman aşımı ve kod yorumlama hataları gösterebilir. Model kontrolünden geçen açıklamalar bile iç kayıtta `review_required` (insan incelemesi gereken taslak) durumunu taşır; kesin doğru cevap sayılmaz. **Faz 2 tamamlanmış değildir.** Güncel ölçümler ve sınırlamalar: [Faz 2 değerlendirme kaydı](PHASE2_STATUS.md).
+
 ## Faz 1 Durumu: Tamamlandı
 
 Faz 1'in hedefi, agent'ın bir issue için ilgili dosyayı kendi kararıyla bulabilmesiydi. Agent bu aşamada **dosya yazmaz**, patch uygulamaz veya test komutu çalıştırmaz; yalnızca repository'yi araştırır ve bulgularını raporlar.
@@ -17,28 +23,39 @@ Kabul kriterleri:
 ## Mimari
 
 ```text
-Issue
-  ↓
-Controller (agent.py)
-  ↓
-Yerel model: Qwen2.5-Coder 7B / Ollama
-  ↓
-list_files | search_code | find_symbol | read_file
-  ↓
-Küçük observation
-  ↓
-Model: sonraki tool çağrısı veya bulgu raporu
+LIST → ROUTE → SEARCH → SELECT → READ → ASSESS
+                  ↑                       │
+                  └── eksik bilgi ────────┘  (sınırlı araştırma)
+                                          │ yeterli görülürse
+                                          ↓
+                              DRAFT → GROUNDING → VERIFY → RESULT
+                                           │          │
+                                           └─ RECOVER ┘
+                                              │
+                                     SEARCH veya REVISE
+                                     (en fazla iki onarım)
 ```
 
-`agent.py` controller'dır: modelin mesaj geçmişini, tool çağrılarını ve maksimum agent adımını yönetir. `tools.py` ise modelin kullanabildiği read-only araçları ve güvenlik sınırlarını uygular.
+| Dosya | Sorumluluk |
+| --- | --- |
+| `agent.py` | Route kararı, aşama sırası, araştırma/onarım bütçesi, sayısal kanıt bağlama ve sonuç durumu. |
+| `protocol.py` | Her aşamanın Pydantic/JSON sözleşmesi, izinli kimlikler, okunabilir kaynak sunumu ve Ollama çağrısı. |
+| `evidence.py` | Python AST ile sınırlı gövde okuma, kaynak türü politikası, sembol/çağrı zinciri, kanıt blokları ve dosya snapshot'ları. |
+| `tools.py` | Dosya, tanım, referans, çağrı ve metin araması ile proje kökü sınırı. |
+
+Her görev yeni kanıt kaydı ve yeni model mesajlarıyla başlar. Önceki soruların cevapları model oturumuna aktarılmaz. Her aşamada yalnız o karar için gerekli veri gönderilir. Dosya içerikleri talimat değil, güvenilmeyen kaynak verisi olarak işaretlenir.
 
 ## Kullanılan Araçlar
 
 | Araç | Amaç |
 | --- | --- |
 | `list_files` | Proje içindeki bir klasörün dosya ve klasörlerini listeler. |
+| `find_file` | Dosya içeriğini değil, açıkça istenen dosya adını veya göreli yolu arar. |
 | `search_code` | Kod içinde bir kelime veya metin arar; kaynak kod sonuçlarını test sonuçlarından önce gösterir. |
-| `find_symbol` | Fonksiyon, class veya değişken tanımının bulunduğu yeri arar. |
+| `find_symbol` | Python'da AST ile fonksiyon, sınıf ve atama tanımlarını bulur; diğer dosyalarda sınırlı regex desteği vardır. |
+| `find_references` | Python AST ile bir sembolün tanımı dışındaki gerçek kullanımlarını arar. |
+| `find_calls` | Python AST ile bir fonksiyon, sınıf veya metot çağrısının yapıldığı yerleri arar. |
+| `find_tests` | Davranışı tartışmalı bir sembolü kullanan Python test fonksiyonlarını ikinci kanıt olarak bulur. |
 | `read_file` | Bir metin dosyasından yalnızca istenen satır aralığını okur. |
 
 ## Güvenlik ve Context Guardrail'leri
@@ -49,18 +66,36 @@ Model: sonraki tool çağrısı veya bulgu raporu
 - Tek dosya okuması en fazla **80 satır** ile sınırlıdır (`MAX_READ_LINES`).
 - Arama çıktısı en fazla **50 sonuç** ile sınırlıdır (`MAX_SEARCH_RESULTS`).
 - `.git`, `venv` ve `__pycache__` agent discovery sürecinden çıkarılır.
-- Agent en fazla **8 adım** çalışır (`MAX_STEPS`).
-- Aynı tool ve aynı parametrelerle yapılan tekrar çağrıları read-only modda engellenir.
+- En fazla **3 araştırma turu**, **14 model çağrısı**, toplam model çağrısı bütçesi **420 saniye**; tek istek için en fazla **90 saniyelik ağ zaman aşımı** vardır. Bunlar aynı tür limitler değildir.
+- Aynı arama yeniden çalıştırılmaz. Önceden okunmuş bir bloğun başka satırına denk gelen aday da tekrar okunmaz.
+- AST incelemesi için dosya boyutu en fazla 1 MB; saklanan kaynak metni bütçesi 16.000 karakterdir. Karakter bütçesi, kesin token sayısı hesabı değildir.
+- Tüm görevlerde aynı model ayarları kullanılır: `temperature=0`, `num_ctx=8192`, `num_predict=768`.
+- Thinking varsayılan olarak kapalıdır. `LOCAL_CODING_AGENT_THINK=true` yalnız kontrollü deneyler için açar; model `LOCAL_CODING_AGENT_MODEL` ile seçilebilir.
+- Model yalnız kayıtlı aday/kanıt kimliklerini seçebilir. Dosya yolu, satır aralığı ve alıntı controller tarafından oluşturulur.
+- Bir iddiadaki sayı, aynı iddianın seçtiği kaynakta veya soruda yoksa taslak LLM hakeminden önce deterministik olarak reddedilir.
+- VERIFY, orijinal sorudaki ayrı alt istekleri checklist olarak raporlar. Eksik işaretlenen bir madde varken model `complete=true` dese bile sonuç tamamlanmış kabul edilmez.
+- ROUTE aşaması dosya bulma, tanım bulma, referans bulma, çağrı izleme, davranış açıklama ve dokümantasyon sorularını ayırır; sorgular yalnız kullanıcı sorusu ve gerçek proje listesindeki hedeflerle sınırlandırılır.
+- Proje listesi arama hedefi değildir: model soruda geçmeyen bir dosya adını tahmin edip `find_file` çalıştıramaz. Başlangıç araçları açık dosya adı, kod sembolü veya literal hedef türüne göre sınırlandırılır.
+- Genel görev sözcüklerindeki tek-harf yazım hataları teknik varlıklara dokunmadan normalize edilir. Doğal dildeki `nerede`, `modeli`, `fonksiyonu` gibi sözcükler bağımsız repository sorgusuna çevrilmez; tırnak içindeki açık arama hedefleri korunur.
+- Literal aramada gerçek kod satırları yorum satırlarından önce sıralanır; testler ve dokümantasyon daha düşük kaynak önceliğindedir.
+- `code_only`, `code_first` ve `docs_first` kaynak politikaları README tekrarlarının runtime kodunun önüne geçmesini engeller.
+- Başarısız taslakta ajan, okunmuş kod adlarından yeni bir hedef seçerek araştırmaya dönebilir. Tanım, referans ve çağrı aramaları ayrı araçlardır; araç ve hedef türü şemada birbirine bağlanır.
+- Çağrı izleme rotası bir literal/ayar değerini atandığı sembole, oradan kullanıldığı constructor veya fonksiyona ve sınıf içindeki terminal çağrıya kadar sınırlı AST veri akışıyla takip eder.
+- Okunmuş dosyada import edilen Python standart kütüphane modülleri repository bağımlılığı gibi aranmaz.
+- Bir callable davranışı ASSESS aşamasında kesinleşmezse veya VERIFY tarafından reddedilirse ve repository'de ilgili test varsa, test fonksiyonu ikincil kanıt olarak okunur; uygulama kodu birincil kaynak kalır.
+- Yeni kanıt geldikten sonra önceki hatalı model yorumu yeni taslağa gerçekmiş gibi taşınmaz; yapılmış aramalar da tekrar önerilmez.
+- Tek bir geçici yerel-model zaman aşımı aynı aşamada bir kez yeniden denenir; ikinci hata güvenli biçimde görevi durdurur.
+- Açık bir dosya `find_file` ile bulunup okunduğunda `locate_file` rotası dosyanın içindeki her ismi yeni bir repository aramasına dönüştürmez; mevcut blok veya sınırlı devam adayı değerlendirilir.
+- Dosya değişirse farklı sürümlerin kanıtları karıştırılmaz; cevap öncesi hash kontrolü tekrar yapılır.
+- Kaynak doğrulaması, açıklamanın anlamsal doğruluğunu ispatlamaz. İkinci model kontrolü de yanılabildiği için sonuç taslaktır.
+
+Satır limiti, modele döndürülen aralığı sınırlar. `read_file` içinde dosya hâlen `readlines()` ile okunur; bu limit bütün dosyanın RAM'e yüklenmesini engelleyen bir mekanizma değildir.
 
 ## Yerel Model Uyumluluğu
 
-Qwen2.5-Coder 7B bazı tool çağrılarını Ollama'nın native `tool_calls` alanı yerine JSON metni veya Markdown JSON kod bloğu olarak üretebildi. Controller bu üç biçimi de güvenli şekilde işler:
+Faz 1'de native tool calling ve metne yazılmış JSON çağrıları birlikte işleniyordu. Güncel controller bu serbest döngüyü kullanmaz: model her aşama için küçük bir JSON kararı üretir, controller izin verilen gerçek aracı çalıştırır.
 
-1. Native Ollama tool call
-2. Düz JSON: `{"name": "search_code", "arguments": {...}}`
-3. Markdown kod bloğu içindeki geçerli JSON
-
-Bu fallback yalnızca `name` alanı string ve `arguments` alanı object olduğunda devreye girer. Diğer metinler final cevap olarak değerlendirilir.
+Şema Ollama'ya `format` parametresiyle verilir ve gelen veri Python tarafında tekrar doğrulanır. Şema dışı çıktı için yalnız bir yeniden deneme vardır. Bu yaklaşımın API dayanağı: [Ollama structured outputs dokümantasyonu](https://docs.ollama.com/capabilities/structured-outputs). Şema uyumu, cevabın doğruluğu anlamına gelmez.
 
 ## Faz 1 Evaluation Özeti
 
@@ -74,9 +109,11 @@ Bu fallback yalnızca `name` alanı string ve `arguments` alanı object olduğun
 
 Bu değerlendirme sonucu Faz 1'in retrieval kriteri 5/5 sağlandı. `MAX_READ_LINES` sorusundaki yanlış ara açıklama özellikle saklandı; Faz 2'deki evidence-grounded diagnosis ve failure analysis çalışmaları için bir örnektir.
 
+Bu tablo tarihsel kayıttır; satır numaraları o sürüme aittir, güncel dosyalarda farklı olabilir. Retrieval başarısı ile doğru ve eksiksiz açıklama üretme başarısı ayrı ölçümlerdir.
+
 ## Otomatik Testler
 
-Faz 1 sonunda 13 test geçmektedir. Testler şunları kapsar:
+Faz 1 sonunda 13 test vardı. Güncel test sayısı 129'dur. Model yanıtları otomatik controller testlerinde taklit edilir; gerçek model değerlendirmesi ayrı tutulur. Testler şunları kapsar:
 
 - Proje kökünün doğru belirlenmesi
 - Repository dışı path reddi
@@ -84,7 +121,20 @@ Faz 1 sonunda 13 test geçmektedir. Testler şunları kapsar:
 - Satır aralığı ve 80 satır limitinin zorlanması
 - Arama sonuçlarında kaynak kodun test dosyalarından önce gelmesi
 - Regex karakterleri içeren sembol aramalarının güvenliği
-- Native, düz JSON ve Markdown JSON tool-call uyumluluğu
+- Aşama şemaları, kayıt dışı kimlik reddi, bozuk/kesilmiş JSON ve zaman aşımı
+- Dosya adı, tanım, referans ve çağrı araçlarının birbirinden ayrılması
+- Router sorgularının soru/proje listesiyle sınırlandırılması ve kaynak türü politikaları
+- Yazım hatalı görev sözcüklerinin normalize edilmesi, arama gürültüsünün ayıklanması ve tırnak içi hedeflerin korunması
+- Çağrı zincirinde tanım, referans ve çağrı araçlarından hedefe uygun tek aracın seçilmesi
+- Standart kütüphane importlarının dependency aramasından çıkarılması ve test fonksiyonlarının ikincil davranış kanıtı olarak bulunması
+- Literal → değişken → constructor/fonksiyon → terminal çağrı kanıt zinciri
+- Açık dosya incelemesinin gereksiz sembol aramalarına genişlememesi
+- Tam fonksiyon gövdesi, sınırlı devam okuması, gerçek satır sınırları ve snapshot tutarlılığı
+- Farklı dosya, sembol ve değerlerde gerçek kaynak alıntıları
+- Modelin kaynak seçimini koruma; ilgisiz sabitleri zorunlu takip etmeme
+- Okunmuş bloklara yeniden denk gelen arama sonuçlarında ek okuma yapmama
+- Kaynak kodunu model mesajında gerçek girinti ve satırlarla sunma
+- Sınırlı `VERIFY → RECOVER → SEARCH/REVISE` akışı; uydurma sayıları reddetme; soru-alt-istek checklist'i; model onayını kesin başarı saymama
 
 Testleri çalıştırmak için:
 
@@ -96,29 +146,47 @@ PYTHONDONTWRITEBYTECODE=1 ./venv/bin/python -m unittest discover -v
 
 - Donanım: Apple M3 MacBook, 16 GB Unified Memory
 - Local inference: Ollama
-- Ana model: `qwen2.5-coder:7b`
+- Varsayılan/baseline model: `qwen2.5-coder:7b`
+- Değerlendirilen yeni aday: `qwen3.5:9b` (`Q4_K_M`, thinking varsayılan kapalı)
 - Hızlı baseline: `qwen2.5-coder:3b`
 - Dil: Python
 
 Model performansına dair başlangıç gözlemleri [MODEL_BASELINE.md](MODEL_BASELINE.md) dosyasında bulunur.
 
-Yerel geliştirme ortamında agentı başlatmak için Ollama'nın açık olması gerekir:
+Yerel geliştirme ortamında Ollama açık olmalıdır. Uygulama zaten çalışıyorsa ayrıca ikinci bir `ollama serve` başlatmak gerekmez:
 
 ```bash
-ollama serve
 ./venv/bin/python agent.py "search_code fonksiyonunun nerede tanımlandığını bul."
 ```
 
-## Faz 2'ye Geçiş
+Modeli kodu değiştirmeden seçmek için:
 
-Bir sonraki aşamada agent yalnızca doğru dosyayı bulmakla yetinmeyecek. Her diagnosis şu yapı ile üretilecek:
-
-```text
-issue_summary
-evidence
-root_cause
-relevant_files
-confidence
+```bash
+env LOCAL_CODING_AGENT_MODEL=qwen3.5:9b ./venv/bin/python agent.py "soru"
 ```
 
-Bu sayede agentın doğru görünen ama kanıtsız veya yanlış açıklamaları ölçülebilir hale gelecek. Faz 3'te kullanıcı onayıyla safe patch, Faz 4'te allowlist tabanlı test feedback loop eklenecek.
+Thinking normalde kapalıdır. Yalnız kontrollü bir deneyde açmak için
+`LOCAL_CODING_AGENT_THINK=true` kullanılabilir.
+
+## Faz 2 Hedefi ve Mevcut Sınır
+
+Faz 2'de agent yalnızca doğru dosyayı bulmakla yetinmemeli. Güncel sonuç kaydı aşağıdaki alanları taşır:
+
+```text
+status
+question
+findings[]: answer + evidence[] (block_id, file, start_line, end_line, quote)
+reason
+```
+
+`review_required`: kaynak kaydı doğrulanmış, model kontrolünden geçmiş fakat insan incelemesi gereken taslak. Cevap üretildiği için CLI çıkış kodu **0**'dır; ekrandaki not insan incelemesini hatırlatır ve kesin doğruluk iddiası taşımaz.
+
+`insufficient_evidence`, `budget_exhausted`, `stopped`: tamamlanamayan araştırma; başarılı cevap sunulmaz. CLI çıkış kodu **1**'dir. Python API sonucunda aşama/araç/model izleri de tutulur.
+
+Varsayılan terminal çıktısı kaynak kodunun tamamını dökmez; sonuç, kısa kanıt konumları ve çalışma özeti gösterilir. Alıntılar dahil makine-okunur ayrıntı gerektiğinde `--json` kullanılabilir:
+
+```bash
+./venv/bin/python agent.py --json "MODEL_NAME nerede tanımlı?"
+```
+
+Modelin kendi söylediği `confidence` artık güvenilirlik ölçüsü olarak kullanılmaz. Araştırma kalitesi, protokole uyum, kaynak doğruluğu ve anlamsal doğruluk farklı sorularda ayrı ölçülmelidir. Faz 3'te kullanıcı onayıyla safe patch, Faz 4'te allowlist tabanlı test feedback loop planlanmaktadır.
