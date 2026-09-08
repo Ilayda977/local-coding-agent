@@ -5,6 +5,13 @@ import tools
 
 
 class ReadOnlyToolTests(unittest.TestCase):
+    def test_qualified_method_definition_is_found_structurally(self):
+        result = tools.find_symbol('EvidenceStore.assert_unchanged')
+        self.assertIn('evidence.py (Satır ', result)
+        self.assertIn('def assert_unchanged(self):', result)
+        self.assertNotIn('def read(', result)
+        self.assertIn('Sembol bulunamadı', tools.find_symbol('NonexistentOwner.assert_unchanged'))
+
     def test_project_root_is_based_on_tools_file(self):
         self.assertEqual(tools.PROJECT_ROOT.name, "local-coding-agent")
         self.assertTrue((tools.PROJECT_ROOT / "tools.py").is_file())

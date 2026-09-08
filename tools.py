@@ -2,6 +2,7 @@ import ast
 import os
 import re
 from pathlib import Path
+from navigation import symbol_match_rank
 
 # Güvenlik sınırı, komutun hangi klasörden çalıştırıldığına değil bu dosyanın
 # bulunduğu proje klasörüne bağlıdır.
@@ -136,7 +137,7 @@ def read_file(file_path, start_line, end_line):
         return "HATA: Güvenlik ihlali! Proje ana klasörü dışındaki bir dosyayı okuyamazsınız."
     if not path.is_file():
         return f"HATA: {_display_path(path)} bir dosya değil veya bulunamadı."
-    if not isinstance(start_line, int) or not isinstance(end_line, int):
+    if type(start_line) is not int or type(end_line) is not int:
         return "HATA: start_line ve end_line pozitif tam sayı olmalıdır."
     if start_line < 1 or end_line < start_line:
         return "HATA: Satır aralığı geçersiz. 1 <= start_line <= end_line olmalıdır."
@@ -168,6 +169,7 @@ def search_code(query, directory="."):
     
     results = []
     folded_query = query.casefold()
+    runtime_match = False
     
     # os.walk klasörlerin içine girerek tüm dosyaları sırayla gezmemizi sağlar
     for root, directories, files in os.walk(search_directory):
@@ -190,6 +192,8 @@ def search_code(query, directory="."):
                         if query in line or folded_query in line.casefold():
                             # Bulduğumuzda dosya yolu ve satır numarasını listeye ekliyoruz
                             base_priority = _result_priority(file_path, line, query)
+                            if base_priority[0] == 0 and file_path.suffix.lower() in SOURCE_EXTENSIONS:
+                                runtime_match = True
                             # Önce kaynak türü (runtime/test/docs), sonra aynı
                             # tür içinde tam yazım eşleşmesi gelir. Böylece bir
                             # testteki exact metin runtime'daki casing fallback'ini ezmez.
@@ -207,6 +211,26 @@ def search_code(query, directory="."):
                 # Eğer dosya okunamıyorsa (örn: resim dosyasıysa) hatayı yoksayıp diğer dosyaya geç
                 continue
                 
+    if not runtime_match:
+        # Cümledeki gerçek sembol tanımları yalnız adaydır; cevap tablosu yoktur.
+        tokens = list(dict.fromkeys(re.findall(r'[^\W\d]\w*', query)))
+        if len(tokens) > 1:
+            definitions = []
+            for token in sorted(tokens, key=len, reverse=True)[:4]:
+                found = find_symbol(token, directory)
+                definitions.extend(row for row in found.splitlines()
+                                   if re.match(r'^.+? \(Satır \d+\): ', row))
+            if definitions:
+                header = ('Literal ifade bulunamadı' if not results else
+                          'Literal eşleşme uygulama kodunda yok')
+                for row in dict.fromkeys(definitions):
+                    match = re.match(r'^(.+?) \(Satır \d+\): (.*)$', row)
+                    file, preview = match.groups()
+                    base = _result_priority(Path(file), preview, '')
+                    results.append(((base[0], 1, *base[1:]), row))
+                # Doküman eşleşmelerini sakla; gerçek kod tanımlarını öncelikle sun.
+                return _format_search_results(
+                    header + '; sorgudaki gerçek sembol tanımları da eklendi (yalnız aday)', results)
     if not results:
         return f"Arama sonucu: '{query}' projedeki hiçbir dosyada bulunamadı."
         
@@ -228,6 +252,7 @@ def find_symbol(symbol_name, directory="."):
         return "HATA: Sembol adı boş olamaz."
         
     results = []
+    suggestions = []
     
     # Sadece tanımlamaları yakalamak için (Python ve JS/TS uyumlu basit bir regex şablonu)
     # Örn: def kelime, class kelime, function kelime, const kelime
@@ -250,22 +275,44 @@ def find_symbol(symbol_name, directory="."):
             try:
                 source = file_path.read_text(encoding='utf-8')
                 definition_lines = None
+                suggested_lines = {}
                 if file_path.suffix == '.py':
                     try:
                         tree = ast.parse(source)
+                        parents = {child: parent for parent in ast.walk(tree)
+                                   for child in ast.iter_child_nodes(parent)}
+
+                        def matches_definition(node, name):
+                            # Qualified definitions are structural names, not contiguous text.
+                            parts = [name]
+                            parent = parents.get(node)
+                            while parent is not None:
+                                if isinstance(parent, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                                    parts.insert(0, parent.name)
+                                parent = parents.get(parent)
+                            wanted = symbol_name.strip().split('.')
+                            actual = '.'.join(parts[-len(wanted):])
+                            rank = symbol_match_rank('.'.join(wanted), actual)
+                            if rank in (1, 2):
+                                suggested_lines[node.lineno] = min(rank, suggested_lines.get(node.lineno, rank))
+                            return rank == 0
+
                         definition_lines = set()
                         for node in ast.walk(tree):
                             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                                if node.name == symbol_name:
+                                if matches_definition(node, node.name):
                                     definition_lines.add(node.lineno)
                             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                                if any(isinstance(part, ast.Name) and isinstance(part.ctx, ast.Store) and part.id == symbol_name
+                                if any(isinstance(part, ast.Name) and isinstance(part.ctx, ast.Store) and matches_definition(node, part.id)
                                        for target in targets for part in ast.walk(target)):
                                     definition_lines.add(node.lineno)
                     except SyntaxError:
                         pass
                 for line_number, line in enumerate(source.split('\n'), 1):
+                    if line_number in suggested_lines:
+                        suggestions.append(((suggested_lines[line_number], *_result_priority(file_path, line, symbol_name)),
+                                            f"{_display_path(file_path)} (Satır {line_number}): {line.strip()}"))
                     is_definition = (line_number in definition_lines if definition_lines is not None
                                      else pattern.search(line))
                     if is_definition:
@@ -279,6 +326,10 @@ def find_symbol(symbol_name, directory="."):
                 continue
                 
     if not results:
+        if suggestions:
+            return _format_search_results(
+                'Tam sembol eşleşmesi yok; benzer yazımlı tanımlar (yalnız aday, kimlik eşitliği değil)',
+                sorted(suggestions)[:5])
         return f"Sembol bulunamadı: Projede '{symbol_name}' adında bir fonksiyon, sınıf veya değişken tanımı bulunamadı."
         
     return _format_search_results("Bulunan sembol tanımları", results)
@@ -309,7 +360,7 @@ def find_references(symbol_name, directory="."):
                 source = path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            lines = source.splitlines()
+            lines = source.split('\n')
             reference_lines = set()
             if path.suffix.lower() == ".py":
                 try:
@@ -376,7 +427,7 @@ def find_calls(call_name, directory="."):
                 tree = ast.parse(source)
             except (OSError, UnicodeDecodeError, SyntaxError):
                 continue
-            lines = source.splitlines()
+            lines = source.split('\n')
             for number in sorted({
                 node.lineno for node in ast.walk(tree) if isinstance(node, ast.Call)
                 and (dotted_name(node.func) == call_name
@@ -420,7 +471,7 @@ def find_tests(symbol_name, directory="."):
                 tree = ast.parse(text)
             except (OSError, UnicodeDecodeError, SyntaxError):
                 continue
-            lines = text.splitlines()
+            lines = text.split('\n')
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue

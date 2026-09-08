@@ -1,5 +1,6 @@
 """Controller testlerinde model taklit edilir; gerçek model değerlendirmesi ayrıdır."""
 import io
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -18,7 +19,8 @@ class ScriptedGateway:
         self.inputs = []
 
     def ask(self, stage, model, instruction, data, allowed_ids=None, allowed_queries=None,
-            allowed_actions=None, forced_action=None, allowed_decisions=None, required_ids=None):
+            allowed_actions=None, forced_action=None, allowed_decisions=None, required_ids=None,
+            allowed_review_facts=None, allowed_intents=None):
         self.trace.append({"stage": stage})
         self.inputs.append(data)
         response = next(self.responses)
@@ -36,6 +38,8 @@ def plan(query="normalize"):
 
 def ready():
     return {"established_facts": ["İstenen davranış okunan kaynakta görüldü."],
+            "checks": [{"requested_fact": "Davranış", "observed_answer": "Okunan işlemin sonucu.",
+                        "evidence_ids": ["E1"], "status": "supported"}],
             "action": "answer", "missing_information": "", "searches": []}
 
 
@@ -59,6 +63,175 @@ def recover(action="revise", query=None):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_revision_does_not_receive_rejected_assessment_answer(self):
+        assessment = ready()
+        assessment['checks'][0]['observed_answer'] = 'Önceki yanlış davranış iddiası.'
+        def revise(data, ids):
+            self.assertTrue(data['answer_requirements'])
+            self.assertTrue(all('assessment_hint' not in item for item in data['answer_requirements']))
+            self.assertTrue(data['source'])
+            self.assertTrue(data['review_feedback'])
+            return draft()
+        result, gateway = self.run_workflow([
+            plan(), {'candidate_ids': ['C1']}, assessment, draft('Yanlış yorum.'),
+            review(False), recover('revise'), revise, review()])
+        self.assertEqual(result.status, 'review_required')
+        self.assertEqual([item['stage'] for item in gateway.trace].count('REVISE'), 1)
+
+    def test_interpret_uses_existing_source_and_still_requires_verify(self):
+        assessment = {'action': 'interpret', 'missing_information': 'Kodun sonucunu yorumlamak gerekiyor.',
+                      'searches': [], 'checks': [
+                          {'requested_fact': 'Davranış', 'observed_answer': '',
+                           'evidence_ids': ['E1'], 'status': 'missing'}]}
+        result, gateway = self.run_workflow([
+            plan(), {'candidate_ids': ['C1']}, assessment, draft(), review()])
+        self.assertEqual(result.status, 'review_required')
+        self.assertEqual([item['stage'] for item in gateway.trace],
+                         ['ROUTE', 'SELECT', 'ASSESS', 'DRAFT', 'VERIFY'])
+        self.assertEqual(len([item for item in result.tool_calls if item['tool'] == 'find_symbol']), 1)
+
+    def test_source_line_number_cannot_substitute_for_numeric_value(self):
+        from protocol import Draft, SearchRequest
+        from evidence import EvidenceStore
+        (self.root / 'normalizer.py').write_text(
+            'WIDTH = 23\n' + '\n' * 21 + 'def normalize(text):\n    return text[:WIDTH]\n')
+        store = EvidenceStore()
+        store.read(store.search(SearchRequest(tool='find_symbol', query='normalize'))[0])
+        self.assertEqual(store.block_citations(['E1'])[0]['start_line'], 23)
+        claim = Draft.model_validate(draft('Sınır 23.', ['E1']))
+        self.assertTrue(agent._numeric_grounding_issues(claim, store, ''))
+        self.assertEqual(agent._numeric_citation_repair_hints(claim, store, ''), [])
+        store.read(store.search(SearchRequest(tool='find_symbol', query='WIDTH'))[0])
+        self.assertEqual(agent._numeric_citation_repair_hints(claim, store, ''), [
+            {'claim': 1, 'value': '23', 'candidate_evidence_ids': ['E2']}])
+        corrected = Draft.model_validate(draft('Sınır 23.', ['E1', 'E2']))
+        self.assertEqual(agent._numeric_grounding_issues(corrected, store, ''), [])
+
+    def test_number_tokens_accept_sentence_punctuation(self):
+        for text in ('Sınır 23.', 'Sınır 23, sonra durur.', '(23)', '`23`.'):
+            with self.subTest(text=text):
+                self.assertEqual(agent._number_tokens(text), {'23'})
+
+    def test_number_tokens_preserve_decimal_values(self):
+        self.assertEqual(agent._number_tokens('Değer 2.75.'), {'2.75'})
+        self.assertEqual(agent._number_tokens('Değer 2,75.'), {'2.75'})
+        self.assertEqual(agent._number_tokens('Değer -23; +1_000.'), {'-23', '1000'})
+
+    def test_number_tokens_do_not_extract_identifier_fragments(self):
+        self.assertEqual(agent._number_tokens('model23 limit_23 23abc'), set())
+
+    def test_numeric_citation_repair_uses_read_blocks_without_new_search(self):
+        from protocol import Draft, SearchRequest
+        from evidence import EvidenceStore
+        (self.root / 'normalizer.py').write_text(
+            'WIDTH = 23\ndef normalize(text):\n    return text[:WIDTH]\n')
+        store = EvidenceStore()
+        store.read(store.search(SearchRequest(tool='find_symbol', query='normalize'))[0])
+        value_draft = Draft.model_validate(draft('Sınır 23.', ['E1']))
+        self.assertEqual(agent._numeric_citation_repair_hints(value_draft, store, ''), [])
+        store.read(store.search(SearchRequest(tool='find_symbol', query='WIDTH'))[0])
+        before = len(store.tool_calls)
+        hints = agent._numeric_citation_repair_hints(value_draft, store, '')
+        self.assertEqual(hints, [{'claim': 1, 'value': '23', 'candidate_evidence_ids': ['E2']}])
+        self.assertEqual(len(store.tool_calls), before)
+        # Aday sunmak hatalı atfı sessizce kabul etmek değildir.
+        self.assertTrue(agent._numeric_grounding_issues(value_draft, store, ''))
+        corrected = Draft.model_validate(draft('Sınır 23.', ['E1', 'E2']))
+        self.assertEqual(agent._numeric_grounding_issues(corrected, store, ''), [])
+        gateway = ScriptedGateway([{'evidence_ids': ['E1', 'E2']}])
+        repaired = agent._repair_numeric_citations(value_draft, store, '', gateway, hints)
+        self.assertEqual(repaired.claims[0].answer, value_draft.claims[0].answer)
+        self.assertEqual(repaired.claims[0].evidence_ids, ['E1', 'E2'])
+        self.assertEqual(value_draft.claims[0].evidence_ids, ['E1'])
+        self.assertEqual([item['stage'] for item in gateway.trace], ['CITE'])
+        self.assertEqual(len(store.tool_calls), before)
+        for ids in (['E1'], ['E999'], []):
+            with self.subTest(invalid_repair=ids):
+                gateway = ScriptedGateway([{'evidence_ids': ids}])
+                with self.assertRaises(agent.EvidenceError):
+                    agent._repair_numeric_citations(value_draft, store, '', gateway, hints)
+                self.assertEqual(len(gateway.trace), 1)
+
+    def test_verify_missing_value_does_not_automatically_search_tests(self):
+        (self.root / 'normalizer.py').write_text(
+            'WIDTH = 19\n\ndef normalize(text):\n    return text[:WIDTH]\n')
+        (self.root / 'test_normalizer.py').write_text(
+            'def test_normalize():\n    assert normalize("abc") == "abc"\n')
+        with patch.object(tools, 'find_tests', side_effect=AssertionError('Unrequested test search')):
+            result, gateway = self.run_workflow([
+                plan(), {'candidate_ids': ['C1']}, ready(), draft('Metni sınırlar.'),
+                review(False), recover('search', 'WIDTH'),
+                lambda data, ids: {'candidate_ids': [next(c['id'] for c in data['candidates'] if c['line'] == 1)]},
+                ready(), draft('Sınır 19 karakterdir.', ['E1', 'E2']), review(),
+            ], question='normalize en fazla kaç karakter döndürür?')
+        self.assertEqual(result.status, 'review_required')
+        self.assertIn('RECOVER', [item['stage'] for item in gateway.trace])
+        self.assertTrue(any(item.get('query') == 'WIDTH' for item in result.tool_calls))
+        self.assertFalse(any(item['tool'] == 'find_tests' for item in result.tool_calls))
+
+    def test_document_and_test_mentions_cannot_shadow_runtime_definition(self):
+        (self.root / 'STATUS.md').write_text('normalize implementation sorgusu başarısızdı.\n')
+        (self.root / 'test_notes.py').write_text('# normalize implementation\n')
+        route = plan()
+        route['searches'] = [{'tool': 'search_code', 'query': 'normalize implementation'}]
+        route['source_policy'] = 'code_only'
+        def select(data, ids):
+            self.assertTrue(all(item['source_kind'] == 'source' for item in data['candidates']))
+            return {'candidate_ids': [next(item['id'] for item in data['candidates']
+                                          if item['file'] == 'normalizer.py')]}
+        result, _ = self.run_workflow([route, select, ready(), draft(), review()])
+        self.assertEqual(result.status, 'review_required')
+        self.assertEqual(result.findings[0]['evidence'][0]['file'], 'normalizer.py')
+
+    def test_recovery_keeps_source_hints_when_feedback_uses_different_words(self):
+        (self.root / 'normalizer.py').write_text(
+            'WIDTH = 19\n\ndef normalize(text):\n    return text[:WIDTH]\n')
+        def choose_recovery(data, ids):
+            self.assertIn('WIDTH', data['search_targets'])
+            self.assertTrue(any(item['query'] == 'WIDTH' for item in data['available_search_actions']))
+            return recover('stop')
+        result, _ = self.run_workflow([
+            plan(), {'candidate_ids': ['C1']}, ready(), draft('Metni sınırlar.'),
+            review(False), choose_recovery,
+        ])
+        self.assertEqual(result.status, 'insufficient_evidence')
+    def test_extra_query_word_recovers_real_definition_before_read_and_answer(self):
+        route = plan()
+        route['searches'] = [{'tool': 'search_code', 'query': 'normalize implementation'}]
+        result, _ = self.run_workflow([
+            route, {'candidate_ids': ['C1']}, ready(), draft(), review(),
+        ])
+        self.assertEqual(result.status, 'review_required')
+        self.assertEqual(result.findings[0]['evidence'][0]['file'], 'normalizer.py')
+        self.assertIn('Literal ifade bulunamadı', result.tool_calls[1]['observation'])
+        self.assertEqual(result.tool_calls[2]['tool'], 'read_file')
+
+    def test_zero_matches_offer_listed_file_instead_of_repeating_search(self):
+        result, gateway = self.run_workflow([
+            plan('unknown_term'), {'candidate_ids': ['C1']}, ready(), draft(), review(),
+        ])
+        self.assertEqual(result.status, 'review_required')
+        selected = gateway.inputs[1]['candidates'][0]
+        self.assertEqual(selected['file'], 'normalizer.py')
+        self.assertTrue(selected['preview'].startswith('[DOSYA]'))
+        self.assertEqual([item['tool'] for item in result.tool_calls],
+                         ['list_files', 'find_symbol', 'read_file'])
+
+    def test_language_literals_are_not_missing_repository_symbols(self):
+        from evidence import EvidenceStore
+        from protocol import Draft, SearchRequest
+        store = EvidenceStore()
+        ids = store.search(SearchRequest(tool='find_symbol', query='normalize'))
+        store.read(ids[0])
+        self.assertEqual(agent._reference_grounding_issues(
+            Draft.model_validate(draft('Bir koşul `False` olabilir; `None` bir dil değeridir.')), store), [])
+        self.assertTrue(agent._reference_grounding_issues(
+            Draft.model_validate(draft('`nonexistent_helper` çağrılır.')), store))
+
+    def test_route_is_not_anchored_to_controller_generated_question_words(self):
+        _, gateway = self.run_workflow(self.simple_responses())
+        self.assertEqual(set(gateway.inputs[0]), {'question', 'project_listing'})
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -73,7 +246,7 @@ class WorkflowTests(unittest.TestCase):
     def run_workflow(self, responses, question="Fonksiyon ne yapıyor?"):
         gateway = ScriptedGateway(responses)
         with redirect_stdout(io.StringIO()):
-            result = agent.run_agent(question, gateway=gateway)
+            result = agent.run_staged_agent(question, gateway=gateway)
         return result, gateway
 
     def simple_responses(self):
@@ -83,7 +256,7 @@ class WorkflowTests(unittest.TestCase):
         gateway = ScriptedGateway([])
         output = io.StringIO()
         with redirect_stdout(output):
-            result = agent.run_agent("soru", gateway=gateway)
+            result = agent.run_staged_agent("soru", gateway=gateway)
         self.assertEqual(result.status, "invalid_request")
         self.assertEqual(result.stages, [])
         self.assertEqual(result.tool_calls, [])
@@ -94,6 +267,16 @@ class WorkflowTests(unittest.TestCase):
         for question in ("MODEL_NAME", "agent.py", "qwen2.5-coder:7b"):
             with self.subTest(question=question):
                 self.assertEqual(agent._request_validation_error(question), "")
+
+    def test_behavior_and_trace_questions_have_bounded_router_intents(self):
+        self.assertEqual(
+            agent._allowed_route_intents("Fonksiyon ne döndürür ve mekanizması nedir?"),
+            ["explain_behavior"],
+        )
+        self.assertEqual(
+            agent._allowed_route_intents("MODEL_NAME gerçek çağrıya nasıl aktarılıyor?"),
+            ["trace_call"],
+        )
 
     def test_stages_cannot_skip_listing_reading_or_verification(self):
         result, _ = self.run_workflow(self.simple_responses())
@@ -221,7 +404,7 @@ class WorkflowTests(unittest.TestCase):
             {"tool": "find_references", "query": "MODEL_ALIAS"},
         ])
 
-    def test_verified_terminal_call_skips_fallible_assessment_verdict(self):
+    def test_terminal_call_is_a_hint_and_does_not_skip_assessment(self):
         (self.root / "normalizer.py").write_text(
             "class Gateway:\n"
             "    def __init__(self, model):\n        self.model = model\n"
@@ -235,13 +418,13 @@ class WorkflowTests(unittest.TestCase):
             "searches": [{"tool": "find_symbol", "query": "Gateway"}],
         }
         result, gateway = self.run_workflow([
-            route, {"candidate_ids": ["C1"]},
+            route, {"candidate_ids": ["C1"]}, ready(),
             {"terminal_call_id": "T1", "answer": "Model send çağrısına aktarılır."},
             review(),
         ], question="Gateway modeli nerede çağırıyor?")
         self.assertEqual(result.status, "review_required")
         self.assertIn("ASSESS", result.stages)
-        self.assertNotIn("ASSESS", [item["stage"] for item in gateway.trace])
+        self.assertIn("ASSESS", [item["stage"] for item in gateway.trace])
         self.assertIn("send(model=self.model)", result.findings[0]["evidence"][0]["quote"])
 
     def test_trace_location_claim_is_removed_without_an_unrelated_search(self):
@@ -258,7 +441,7 @@ class WorkflowTests(unittest.TestCase):
             "searches": [{"tool": "find_symbol", "query": "Gateway"}],
         }
         result, _ = self.run_workflow([
-            route, {"candidate_ids": ["C1"]},
+            route, {"candidate_ids": ["C1"]}, ready(),
             {"terminal_call_id": "T1", "answer": "Model satır 999 içinde send çağrısına aktarılır."},
             review(),
         ], question="Gateway modeli nerede çağırıyor?")
@@ -314,7 +497,8 @@ class WorkflowTests(unittest.TestCase):
         ))
 
     def test_immediate_answer_without_any_read_is_rejected(self):
-        result, _ = self.run_workflow([plan("missing_symbol"), ready()])
+        with patch('agent.EvidenceStore.listed_file_candidates', return_value=[]):
+            result, _ = self.run_workflow([plan("missing_symbol"), ready()])
         self.assertEqual(result.status, "insufficient_evidence")
         self.assertEqual(result.findings, [])
         self.assertNotIn("DRAFT", result.stages)
@@ -337,7 +521,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.findings, [])
         self.assertEqual(result.stages.count("REVISE"), 1)
 
-    def test_failed_behavior_draft_uses_repository_test_as_secondary_evidence(self):
+    def test_model_can_choose_repository_test_as_secondary_evidence(self):
         (self.root / "test_normalizer.py").write_text(
             "def test_normalize_is_stable():\n"
             "    assert normalize(' value ') == normalize('value')\n",
@@ -346,6 +530,8 @@ class WorkflowTests(unittest.TestCase):
         result, _ = self.run_workflow([
             plan(), {"candidate_ids": ["C1"]}, ready(),
             draft("Normalize sonucu kararlı değildir."), review(False),
+            {"decision_summary": "İlgili testi oku.", "action": "search",
+             "searches": [{"tool": "find_tests", "query": "normalize"}]},
             {"candidate_ids": ["C2"]}, ready(),
             draft("Normalize iki girdide de aynı sonucu verir.", ["E1", "E2"]), review(),
         ], question="normalize eşdeğer girdilerde aynı sonucu üretir mi?")
@@ -357,26 +543,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.stages.count("RECOVER"), 1)
         self.assertEqual(result.stages.count("REDRAFT"), 1)
 
-    def test_inconclusive_assessment_uses_repository_test_before_stopping(self):
-        (self.root / "test_normalizer.py").write_text(
-            "def test_normalize_is_stable():\n"
-            "    assert normalize(' value ') == normalize('value')\n",
-            encoding="utf-8",
-        )
-        inconclusive = {
-            "established_facts": [], "action": "search",
-            "missing_information": "Davranışı doğrulayacak ek kanıt gerekli.", "searches": [],
-        }
-        result, _ = self.run_workflow([
-            plan(), {"candidate_ids": ["C1"]}, inconclusive,
-            {"candidate_ids": ["C2"]}, ready(),
-            draft("Normalize iki girdide de aynı sonucu verir.", ["E1", "E2"]), review(),
-        ], question="normalize eşdeğer girdilerde aynı sonucu üretir mi?")
-        self.assertEqual(result.status, "review_required")
-        self.assertTrue(any(
-            call.get("tool") == "find_tests" and call.get("query") == "normalize"
-            for call in result.tool_calls
-        ))
 
     def test_recovery_is_bounded_after_search_and_revision(self):
         (self.root / "normalizer.py").write_text(
@@ -445,7 +611,7 @@ class WorkflowTests(unittest.TestCase):
         gateway = ScriptedGateway(self.simple_responses())
         stream = io.StringIO()
         with redirect_stdout(stream):
-            agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway)
+            agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway)
         output = stream.getvalue()
         for label in ("AJAN KARARI — ROUTE", "AJAN KARARI — SELECT",
                       "KANIT DURUMU — ASSESS", "AJAN TASLAĞI",
@@ -455,6 +621,7 @@ class WorkflowTests(unittest.TestCase):
     def test_unverified_assessment_facts_are_not_printed_as_final_facts(self):
         claimed = {
             "established_facts": ["Yanlış ara model yorumu."],
+            "checks": ready()['checks'],
             "action": "answer", "missing_information": "", "searches": [],
         }
         gateway = ScriptedGateway([
@@ -462,14 +629,14 @@ class WorkflowTests(unittest.TestCase):
         ])
         stream = io.StringIO()
         with redirect_stdout(stream):
-            agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway)
+            agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway)
         self.assertNotIn("Yanlış ara model yorumu", stream.getvalue())
 
     def test_default_terminal_result_is_short_and_does_not_dump_source_json(self):
         gateway = ScriptedGateway(self.simple_responses())
         stream = io.StringIO()
         with redirect_stdout(stream):
-            agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway)
+            agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway)
         output = stream.getvalue()
         self.assertIn("[SONUÇ]", output)
         self.assertIn("[KANIT KONUMLARI]", output)
@@ -481,7 +648,7 @@ class WorkflowTests(unittest.TestCase):
         gateway = ScriptedGateway(self.simple_responses())
         stream = io.StringIO()
         with redirect_stdout(stream):
-            agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway, json_output=True)
+            agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway, json_output=True)
         self.assertIn('"findings":', stream.getvalue())
 
     def test_cli_exit_code_treats_a_reviewable_answer_as_completed(self):
@@ -496,7 +663,7 @@ class WorkflowTests(unittest.TestCase):
         ])
         stream = io.StringIO()
         with redirect_stdout(stream):
-            result = agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway)
+            result = agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway)
         self.assertEqual(result.status, "insufficient_evidence")
         self.assertIn("999", result.reason)
         self.assertNotIn("VERIFY", result.stages)
@@ -536,6 +703,45 @@ class WorkflowTests(unittest.TestCase):
             [call["tool"] for call in result.tool_calls],
             ["list_files", "find_symbol", "read_file"],
         )
+
+    def test_natural_language_return_matches_exception_handler_result(self):
+        (self.root / "safe.py").write_text(
+            "def safe(value):\n"
+            "    try:\n"
+            "        value.relative_to(ROOT)\n"
+            "        return value\n"
+            "    except (TypeError, ValueError):\n"
+            "        return None\n",
+            encoding="utf-8",
+        )
+        store = agent.EvidenceStore()
+        ids = store.search(agent.SearchRequest(tool="find_symbol", query="safe"))
+        store.read(ids[0])
+        candidate = agent.Draft.model_validate({"claims": [{
+            "answer": (
+                "`value.relative_to(ROOT)` ValueError oluşturursa "
+                "handler `None` döndürür."
+            ),
+            "evidence_ids": ["E1"],
+        }]})
+        self.assertEqual(
+            agent._mechanism_grounding_issues(candidate, store, "Mekanizmayı açıkla."),
+            [],
+        )
+
+    def test_long_grounding_feedback_stays_inside_review_schema_limits(self):
+        issue = "x" * 500
+        review_result = agent.Review(
+            question_checklist=[{
+                "requested_fact": "Deterministik kanıt gereksinimi",
+                "covered": False,
+                "explanation": agent._short(issue, 250),
+            }],
+            source_interpretation="Deterministik kanıt kontrolü başarısız oldu.",
+            issues=[agent._short(issue, 300)], supported=False, complete=False,
+        )
+        self.assertLessEqual(len(review_result.question_checklist[0].explanation), 250)
+        self.assertLessEqual(len(review_result.issues[0]), 300)
 
     def test_reviewer_checks_original_question_not_only_model_plan(self):
         question = "İşlevi ve geri dönüş değerini ayrı ayrı açıkla."
@@ -589,7 +795,8 @@ class WorkflowTests(unittest.TestCase):
     def test_repeat_search_does_not_execute_again_or_loop_forever(self):
         repeat = {"established_facts": [], "action": "search", "missing_information": "Bulunamadı.",
                   "searches": [{"tool": "find_symbol", "query": "absent"}]}
-        result, _ = self.run_workflow([plan("absent")] + [repeat] * agent.MAX_RESEARCH_ROUNDS)
+        with patch('agent.EvidenceStore.listed_file_candidates', return_value=[]):
+            result, _ = self.run_workflow([plan("absent")] + [repeat] * agent.MAX_RESEARCH_ROUNDS)
         self.assertEqual(result.status, "insufficient_evidence")
         self.assertEqual(len(result.tool_calls), 2)  # list + tek search
         self.assertEqual(result.findings, [])
@@ -618,9 +825,56 @@ class WorkflowTests(unittest.TestCase):
                                    '"decision_summary":"x","searches":[{"tool":"delete","query":"x"}]}'},
         })
         with redirect_stdout(io.StringIO()):
-            result = agent.run_agent("Herhangi bir soru", gateway=gateway)
+            result = agent.run_staged_agent("Herhangi bir soru", gateway=gateway)
         self.assertEqual(result.status, "stopped")
         self.assertEqual(result.tool_calls, [{"tool": "list_files", "directory_path": "."}])
+
+
+class TestRoutePrioritization(unittest.TestCase):
+    def test_prunes_builtin_noise_when_symbol_present(self):
+        from agent import _prioritize_route_searches
+        from protocol import SearchRequest
+        searches = [
+            SearchRequest(tool="find_symbol", query="_resolve_safe_path"),
+            SearchRequest(tool="search_code", query="ValueError"),
+        ]
+        result = _prioritize_route_searches(searches, "question")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].tool, "find_symbol")
+
+    def test_prunes_multi_word_prose_when_symbol_present(self):
+        from agent import _prioritize_route_searches
+        from protocol import SearchRequest
+        searches = [
+            SearchRequest(tool="search_code", query="default limit value"),
+            SearchRequest(tool="find_symbol", query="context_range"),
+        ]
+        result = _prioritize_route_searches(searches, "question")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].query, "context_range")
+
+    def test_keeps_valid_multiple_searches(self):
+        from agent import _prioritize_route_searches
+        from protocol import SearchRequest
+        searches = [
+            SearchRequest(tool="find_file", query="settings.py"),
+            SearchRequest(tool="find_symbol", query="MODEL_ALIAS"),
+        ]
+        result = _prioritize_route_searches(searches, "question")
+        self.assertEqual(len(result), 2)
+        # find_symbol gets priority 2 (uppercase), find_file gets 3. So MODEL_ALIAS should be first!
+        self.assertEqual(result[0].query, "MODEL_ALIAS")
+        self.assertEqual(result[1].query, "settings.py")
+
+    def test_keeps_noise_if_nothing_else_present(self):
+        from agent import _prioritize_route_searches
+        from protocol import SearchRequest
+        searches = [
+            SearchRequest(tool="search_code", query="ValueError"),
+        ]
+        result = _prioritize_route_searches(searches, "question")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].query, "ValueError")
 
 
 if __name__ == "__main__":

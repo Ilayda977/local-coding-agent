@@ -6,9 +6,31 @@ Bu çalışma, güçlü bir bulut modelini kopyalamayı hedeflemez. Amaç; Apple
 
 ## Güncel Durum: Faz 2 Devam Ediyor
 
+**8 Eylül 2026:** Varsayılan giriş artık `repository_agent.py` içindeki sabit
+istek sözleşmeli controller'dır. Hedef, girdiler/varsayımlar ve Q kimlikli sonuç
+istekleri araştırma boyunca korunur. Eski aşamalı akış silinmedi;
+`--legacy-staged` ile karşılaştırılabilir. Yeni mimari ve henüz doğrulanmamış
+kabul durumu: [Faz 1–2 mimarisi](PHASE12_ARCHITECTURE.md).
+
+**Aşağıdaki aşama şeması ve test sayıları önceki akışın tarihsel kaydıdır;
+yeni controller'ın test veya canlı başarı sonucu değildir.**
+
 Controller, araştırmayı açık aşamalarla yönetir. Model arama hedeflerini ve kaynak adaylarını seçer; controller gerçekten okunan koddan kanıt blokları, dosya yolları, satır aralıkları ve alıntılar üretir. Policy içinde örnek soruların cevapları veya belirli bir hedef dosyaya yönlendirme yoktur.
 
-129 otomatik test geçmektedir; bunlar modelin görev başarısı değildir. Gerçek model denemeleri hâlâ araştırma kararı, zaman aşımı ve kod yorumlama hataları gösterebilir. Model kontrolünden geçen açıklamalar bile iç kayıtta `review_required` (insan incelemesi gereken taslak) durumunu taşır; kesin doğru cevap sayılmaz. **Faz 2 tamamlanmış değildir.** Güncel ölçümler ve sınırlamalar: [Faz 2 değerlendirme kaydı](PHASE2_STATUS.md).
+148 otomatik test geçmektedir; bunlar modelin görev başarısı değildir. Gerçek model denemeleri hâlâ araştırma kararı, zaman aşımı ve kod yorumlama hataları gösterebilir. Model kontrolünden geçen açıklamalar bile iç kayıtta `review_required` (insan incelemesi gereken taslak) durumunu taşır; kesin doğru cevap sayılmaz. **Faz 2 tamamlanmış değildir.** Güncel ölçümler ve sınırlamalar: [Faz 2 değerlendirme kaydı](PHASE2_STATUS.md).
+
+Arama önce literal eşleşmeyi kullanır. Eşleşme yoksa çok sözcüklü sorgudaki
+en fazla dört terimin gerçek sembol tanımları aday gösterilir; bu geri dönüş
+gözlemde açıkça etiketlenir. Yine aday yoksa model listelenmiş dosyalardan seçim
+yapabilir. Adayın bulunması cevap değildir; bounded okuma ve diagnosis denetimi korunur.
+
+Güncel baseline `qwen2.5-coder:7b`; varsayılan hedef bu repository'dir.
+VERIFY normal çağrıda yalnız `issues`, `supported`, `complete` üretir (512 token;
+bir biçim onarımında en fazla 768). DRAFT 1024 token ile sınırlıdır. Her model
+çağrısının süresi ve çıktı token sayısı terminalde gösterilir; görev toplam süre
+sınırı 300 saniyedir. Kısalan çıktı henüz gerçek model hız/doğruluk ölçümü değildir.
+Arama hedefleri model tarafından seçilir; soru sözcüklerinden üretilmiş zorunlu
+liste yoktur. `find_symbol` Python `Class.method` tanımlarını AST ile bulabilir.
 
 ## Faz 1 Durumu: Tamamlandı
 
@@ -16,7 +38,7 @@ Faz 1'in hedefi, agent'ın bir issue için ilgili dosyayı kendi kararıyla bula
 
 Kabul kriterleri:
 
-- 5 basit issue'da ilgili kaynak dosyasını bulmak: **5/5 başarılı**
+- Önceki Faz 1 sürümünde 5 basit issue'da ilgili kaynak dosyasını bulmak: **5/5 başarılı**; bu tarihsel sonuç güncel sürümün yeniden ölçümü değildir.
 - Repository dışındaki path'leri reddetmek: **otomatik testlerle doğrulandı**
 - Tüm repository'yi modele göndermemek: **satır aralıklı dosya okuma ve çıktı limitleriyle doğrulandı**
 
@@ -73,7 +95,7 @@ Her görev yeni kanıt kaydı ve yeni model mesajlarıyla başlar. Önceki sorul
 - Thinking varsayılan olarak kapalıdır. `LOCAL_CODING_AGENT_THINK=true` yalnız kontrollü deneyler için açar; model `LOCAL_CODING_AGENT_MODEL` ile seçilebilir.
 - Model yalnız kayıtlı aday/kanıt kimliklerini seçebilir. Dosya yolu, satır aralığı ve alıntı controller tarafından oluşturulur.
 - Bir iddiadaki sayı, aynı iddianın seçtiği kaynakta veya soruda yoksa taslak LLM hakeminden önce deterministik olarak reddedilir.
-- VERIFY, orijinal sorudaki ayrı alt istekleri checklist olarak raporlar. Eksik işaretlenen bir madde varken model `complete=true` dese bile sonuç tamamlanmış kabul edilmez.
+- VERIFY, orijinal sorunun kapsamını ve kaynakla tutarlılığı kısa sorun listesiyle denetler; aynı soruya ikinci uzun açıklama üretmez. Model onayı semantik doğruluk garantisi değildir.
 - ROUTE aşaması dosya bulma, tanım bulma, referans bulma, çağrı izleme, davranış açıklama ve dokümantasyon sorularını ayırır; sorgular yalnız kullanıcı sorusu ve gerçek proje listesindeki hedeflerle sınırlandırılır.
 - Proje listesi arama hedefi değildir: model soruda geçmeyen bir dosya adını tahmin edip `find_file` çalıştıramaz. Başlangıç araçları açık dosya adı, kod sembolü veya literal hedef türüne göre sınırlandırılır.
 - Genel görev sözcüklerindeki tek-harf yazım hataları teknik varlıklara dokunmadan normalize edilir. Doğal dildeki `nerede`, `modeli`, `fonksiyonu` gibi sözcükler bağımsız repository sorgusuna çevrilmez; tırnak içindeki açık arama hedefleri korunur.
