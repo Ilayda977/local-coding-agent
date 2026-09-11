@@ -63,6 +63,25 @@ def recover(action="revise", query=None):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_draft_receives_original_requirements_without_assessment_conclusion(self):
+        question = 'normalize hangi değeri döndürür? İlgili kodu göster.'
+        assessment = ready()
+        assessment['checks'][0]['requested_fact'] = 'Başka bir soru'
+        assessment['checks'][0]['observed_answer'] = 'Unverified conclusion'
+        def inspect_draft(data, ids):
+            self.assertEqual(data['answer_requirements'], [
+                {'id': 'Q1', 'requested_fact': 'normalize hangi değeri döndürür?'},
+                {'id': 'Q2', 'requested_fact': 'İlgili kodu göster.'},
+            ])
+            self.assertNotIn('Unverified conclusion', json.dumps(data))
+            self.assertNotIn('Başka bir soru', json.dumps(data, ensure_ascii=False))
+            self.assertTrue(data['source'])
+            return draft()
+        result, _ = self.run_workflow([
+            plan(), {'candidate_ids': ['C1']}, assessment, inspect_draft, review(),
+        ], question=question)
+        self.assertEqual(result.status, 'review_required')
+
     def test_revision_does_not_receive_rejected_assessment_answer(self):
         assessment = ready()
         assessment['checks'][0]['observed_answer'] = 'Önceki yanlış davranış iddiası.'
@@ -232,6 +251,35 @@ class WorkflowTests(unittest.TestCase):
         _, gateway = self.run_workflow(self.simple_responses())
         self.assertEqual(set(gateway.inputs[0]), {'question', 'project_listing'})
 
+    def test_api_in_another_read_block_cannot_support_this_claim(self):
+        from evidence import EvidenceStore
+        from protocol import Draft, SearchRequest
+        (self.root / 'other.py').write_text('def load():\n    return remote.fetch()\n')
+        store = EvidenceStore()
+        store.read(store.search(SearchRequest(tool='find_symbol', query='normalize'))[0])
+        store.read(store.search(SearchRequest(tool='find_symbol', query='load'))[0])
+        self.assertTrue(agent._reference_grounding_issues(
+            Draft.model_validate(draft('remote.fetch çağrılır.', ['E1'])), store))
+        self.assertEqual(agent._reference_grounding_issues(
+            Draft.model_validate(draft('remote.fetch çağrılır.', ['E2'])), store), [])
+
+    def test_plain_invented_constant_assignment_is_not_accepted(self):
+        from evidence import EvidenceStore
+        from protocol import Draft, SearchRequest
+        (self.root / 'settings.py').write_text('REAL_LIMIT = 23\n')
+        store = EvidenceStore()
+        store.read(store.search(SearchRequest(tool='find_symbol', query='REAL_LIMIT'))[0])
+        self.assertTrue(agent._reference_grounding_issues(
+            Draft.model_validate(draft('WRONG_LIMIT = 23')), store))
+        self.assertEqual(agent._reference_grounding_issues(
+            Draft.model_validate(draft('REAL_LIMIT = 23')), store), [])
+
+    def test_reference_checker_has_only_one_top_level_definition(self):
+        import ast
+        tree = ast.parse(Path(agent.__file__).read_text())
+        names = [node.name for node in tree.body if isinstance(node, ast.FunctionDef)]
+        self.assertEqual(names.count('_reference_grounding_issues'), 1)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -246,7 +294,7 @@ class WorkflowTests(unittest.TestCase):
     def run_workflow(self, responses, question="Fonksiyon ne yapıyor?"):
         gateway = ScriptedGateway(responses)
         with redirect_stdout(io.StringIO()):
-            result = agent.run_staged_agent(question, gateway=gateway)
+            result = agent.run_agent(question, gateway=gateway)
         return result, gateway
 
     def simple_responses(self):
@@ -256,7 +304,7 @@ class WorkflowTests(unittest.TestCase):
         gateway = ScriptedGateway([])
         output = io.StringIO()
         with redirect_stdout(output):
-            result = agent.run_staged_agent("soru", gateway=gateway)
+            result = agent.run_agent("soru", gateway=gateway)
         self.assertEqual(result.status, "invalid_request")
         self.assertEqual(result.stages, [])
         self.assertEqual(result.tool_calls, [])
@@ -277,6 +325,28 @@ class WorkflowTests(unittest.TestCase):
             agent._allowed_route_intents("MODEL_NAME gerçek çağrıya nasıl aktarılıyor?"),
             ["trace_call"],
         )
+
+    def test_call_word_does_not_override_requested_return_behavior(self):
+        for question in ('Fonksiyon çağrıldığında ne döndürür?',
+                         'What does the function return when called?'):
+            self.assertEqual(agent._allowed_route_intents(question), ['explain_behavior'])
+        self.assertIn('trace_call', agent._allowed_route_intents('Where is the function called?'))
+
+    def test_review_facts_are_literal_question_clauses(self):
+        question = 'render çağrıldığında ne yazdırır ve ne döndürür? Yardımcıları da oku.'
+        self.assertEqual(agent._question_review_facts(question), [
+            'render çağrıldığında ne yazdırır ve ne döndürür?', 'Yardımcıları da oku.'])
+
+    def test_reviewer_generated_answer_does_not_become_next_review_scope(self):
+        bad_review = review(False)
+        bad_review['question_checklist'][0]['requested_fact'] = 'Invented output is printed?'
+        _, gateway = self.run_workflow([
+            plan(), {'candidate_ids': ['C1']}, ready(), draft(),
+            bad_review, recover('revise'), draft(), review()],
+            question='normalize ne döndürür?')
+        reviews = [d for d in gateway.inputs if 'require_answer_coverage' in d]
+        self.assertEqual(len(reviews), 2)
+        self.assertTrue(all(d['review_facts'] == ['normalize ne döndürür?'] for d in reviews))
 
     def test_stages_cannot_skip_listing_reading_or_verification(self):
         result, _ = self.run_workflow(self.simple_responses())
@@ -611,7 +681,7 @@ class WorkflowTests(unittest.TestCase):
         gateway = ScriptedGateway(self.simple_responses())
         stream = io.StringIO()
         with redirect_stdout(stream):
-            agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway)
+            agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway)
         output = stream.getvalue()
         for label in ("AJAN KARARI — ROUTE", "AJAN KARARI — SELECT",
                       "KANIT DURUMU — ASSESS", "AJAN TASLAĞI",
@@ -629,14 +699,14 @@ class WorkflowTests(unittest.TestCase):
         ])
         stream = io.StringIO()
         with redirect_stdout(stream):
-            agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway)
+            agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway)
         self.assertNotIn("Yanlış ara model yorumu", stream.getvalue())
 
     def test_default_terminal_result_is_short_and_does_not_dump_source_json(self):
         gateway = ScriptedGateway(self.simple_responses())
         stream = io.StringIO()
         with redirect_stdout(stream):
-            agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway)
+            agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway)
         output = stream.getvalue()
         self.assertIn("[SONUÇ]", output)
         self.assertIn("[KANIT KONUMLARI]", output)
@@ -648,7 +718,7 @@ class WorkflowTests(unittest.TestCase):
         gateway = ScriptedGateway(self.simple_responses())
         stream = io.StringIO()
         with redirect_stdout(stream):
-            agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway, json_output=True)
+            agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway, json_output=True)
         self.assertIn('"findings":', stream.getvalue())
 
     def test_cli_exit_code_treats_a_reviewable_answer_as_completed(self):
@@ -663,46 +733,48 @@ class WorkflowTests(unittest.TestCase):
         ])
         stream = io.StringIO()
         with redirect_stdout(stream):
-            result = agent.run_staged_agent("Fonksiyon ne yapıyor?", gateway=gateway)
+            result = agent.run_agent("Fonksiyon ne yapıyor?", gateway=gateway)
         self.assertEqual(result.status, "insufficient_evidence")
         self.assertIn("999", result.reason)
         self.assertNotIn("VERIFY", result.stages)
         self.assertIn("KANIT BAĞLAMA — GROUNDING", stream.getvalue())
 
-    def test_requested_condition_must_preserve_the_observed_predicate(self):
-        (self.root / "normalizer.py").write_text(
-            "SKIP = {'tmp'}\n\ndef visible(name):\n"
-            "    return not name.startswith('.') and name not in SKIP\n",
-            encoding="utf-8",
-        )
-        store = agent.EvidenceStore()
-        candidate = store.search(
-            agent.SearchRequest(tool="find_symbol", query="visible"),
-        )[0]
-        store.read(candidate)
-        bad = agent.Draft.model_validate(draft("SKIP içindekiler alınmaz.", ["E1"]))
-        self.assertTrue(agent._condition_grounding_issues(
-            bad, store, "visible hangi koşulla isimleri seçer?",
-        ))
+    def test_condition_prose_uses_exact_cited_source_without_revision(self):
+        source = "def normalize(text):\n    return text if text is not None else ''\n"
+        (self.root / "normalizer.py").write_text(source)
+        answer = "Metin None değilse kendisini, aksi durumda boş metin döndürür."
+        gateway = ScriptedGateway([
+            plan(), {'candidate_ids': ['C1']}, ready(), draft(answer), review(),
+        ])
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = agent.run_agent("normalize hangi koşulla text değerini döndürür?",
+                                     gateway=gateway)
+        self.assertEqual(result.status, 'review_required')
+        self.assertEqual(result.findings[0]['answer'], answer)
+        self.assertEqual(result.findings[0]['evidence'][0]['quote'], source.rstrip('\n'))
+        self.assertIn(source.rstrip('\n'), output.getvalue())
+        self.assertIn('VERIFY', result.stages)
+        self.assertNotIn('REVISE', result.stages)
+        self.assertNotIn('RECOVER', result.stages)
+        verify_input = next(item for item in gateway.inputs if 'require_answer_coverage' in item)
+        self.assertEqual(verify_input['findings'][0]['answer'], answer)
+        self.assertEqual(verify_input['findings'][0]['evidence'][0]['quote'], source.rstrip('\n'))
 
-    def test_missing_condition_is_revised_without_new_repository_search(self):
+    def test_attached_condition_does_not_bypass_semantic_rejection(self):
         (self.root / "normalizer.py").write_text(
-            "def normalize(text):\n    return text if text is not None else ''\n",
-            encoding="utf-8",
-        )
-        bad_draft = draft("None değerinde boş metin döner.", ["E1"])
-        exact_draft = draft(
-            "Koşul `text is not None` ifadesidir; doğruysa text, değilse boş metin döner.",
-            ["E1"],
-        )
-        result, _ = self.run_workflow([
-            plan(), {"candidate_ids": ["C1"]}, ready(), bad_draft, exact_draft, review(),
+            "def normalize(text):\n    return text if text is not None else ''\n")
+        wrong = draft("None olduğunda text değerini döndürür.")
+        corrected = draft("None değilse text, aksi durumda boş metin döndürür.")
+        result, gateway = self.run_workflow([
+            plan(), {'candidate_ids': ['C1']}, ready(), wrong,
+            review(False), recover('revise'), corrected, review(),
         ], question="normalize hangi koşulla text değerini döndürür?")
-        self.assertEqual(result.status, "review_required")
-        self.assertEqual(
-            [call["tool"] for call in result.tool_calls],
-            ["list_files", "find_symbol", "read_file"],
-        )
+        self.assertEqual(result.status, 'review_required')
+        self.assertEqual(result.findings[0]['answer'], corrected['claims'][0]['answer'])
+        self.assertEqual([item['stage'] for item in gateway.trace].count('VERIFY'), 2)
+        self.assertEqual([call['tool'] for call in result.tool_calls],
+                         ['list_files', 'find_symbol', 'read_file'])
 
     def test_natural_language_return_matches_exception_handler_result(self):
         (self.root / "safe.py").write_text(
@@ -825,7 +897,7 @@ class WorkflowTests(unittest.TestCase):
                                    '"decision_summary":"x","searches":[{"tool":"delete","query":"x"}]}'},
         })
         with redirect_stdout(io.StringIO()):
-            result = agent.run_staged_agent("Herhangi bir soru", gateway=gateway)
+            result = agent.run_agent("Herhangi bir soru", gateway=gateway)
         self.assertEqual(result.status, "stopped")
         self.assertEqual(result.tool_calls, [{"tool": "list_files", "directory_path": "."}])
 

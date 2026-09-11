@@ -16,6 +16,48 @@ from navigation import FILE_SUFFIXES
 QUALIFIED_NAME = re.compile(r'(?<![\w.])[^\W\d]\w*(?:\.[^\W\d]\w*)+(?![\w.])')
 
 
+def callable_statement_index(source):
+    """Bounded source locators by lexical owner, not inferred runtime outcomes.
+
+    Nested functions do not contribute returns/raises to their callers.
+    Only supplied, actually read blocks are indexed; partial syntax is skipped.
+    """
+    result = []
+    for block in source:
+        if not block['file'].endswith('.py'):
+            continue
+        text = textwrap.dedent(block['quote'])
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+
+        def visit(node, scope=()):
+            if len(result) >= 24:
+                return
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                scope = (*scope, node.name)
+                for statement in node.body:
+                    visit(statement, scope)
+                return
+            if isinstance(node, ast.Lambda):
+                return
+            if scope and isinstance(node, (ast.Return, ast.Raise)):
+                result.append({
+                    'evidence_id': block.get('id', block.get('block_id')),
+                    'file': block['file'], 'owner': '.'.join(scope),
+                    'line': block['start_line'] + node.lineno - 1,
+                    'kind': 'return' if isinstance(node, ast.Return) else 'raise',
+                    'statement': (ast.get_source_segment(text, node) or '')[:400],
+                })
+                return
+            for child in ast.iter_child_nodes(node):
+                visit(child, scope)
+
+        visit(tree)
+    return result
+
+
 def _attribute_name(node):
     parts = []
     while isinstance(node, ast.Attribute):
@@ -52,29 +94,34 @@ def reference_index(source):
     return result
 
 
-def reference_issues(answers, source):
-    """Unsupported names are not accepted even if another LLM approves them.
-
-Deliberately no guess of Turkish/English negation: an unsupported negative name
-also requests a narrower formulation, rather than treating absence as proof.
-"""
+def check_draft(draft_text, source):
+    """
+    Checks if any qualified names (e.g. sys.stdout.write) in the drafted text
+    are actually present in the AST of the read source blocks.
+    Returns a list of error messages, or an empty list if clean.
+    """
     index = reference_index(source)
     issues = []
-    for answer in answers:
-        claimed = set(QUALIFIED_NAME.findall(answer.answer + '\n' + answer.mechanism))
-        claimed = {name for name in claimed if PurePosixPath(name).suffix.casefold() not in FILE_SUFFIXES}
-        if not claimed:
+    
+    claimed = set(QUALIFIED_NAME.findall(draft_text))
+    claimed = {name for name in claimed if PurePosixPath(name).suffix.casefold() not in FILE_SUFFIXES}
+    
+    if not claimed:
+        return issues
+        
+    blocks = [block for block in index.values() if block['parsed']]
+    observed = {name for block in blocks for name in block['references']}
+    
+    for name in sorted(claimed):
+        if name in observed:
             continue
-        ids = [a.evidence_id for a in answer.anchors]
-        blocks = [index[key] for key in ids if key in index]
-        if len(blocks) != len(ids) or not all(b['parsed'] for b in blocks):
-            issues.append(f'{answer.requirement_id}: Kod referansları bu parçaların AST bağlamında doğrulanamadı; tam ilgili bölümü oku veya iddiayı daralt.')
+        if '.' in name and name.split('.')[-1] in observed:
             continue
-        observed = {name for block in blocks for name in block['references']}
-        for name in sorted(claimed - observed):
-            issues.append(
-                f'{answer.requirement_id}: {name} bağlı okunmuş kodda doğrudan referans olarak yok. '
-                'Bu, tüm projede bulunmadığını kanıtlamaz. İlgili kullanım kanıtını oku veya '
-                'cevabı yalnız gerçek işlemler üzerinden ifade et; olumsuz cevapta da bu desteklenmeyen adı tekrarlama. '
-                f'Görülen referanslar: {", ".join(sorted(observed)) or "yok"}.')
+        issues.append(
+            f"'{name}' bağlı okunmuş kodda doğrudan referans olarak doğrulanamadı. "
+            "Bu kontrol alias, olumsuz cümle veya eksik bloktan yokluk ispatı yapmaz; "
+            "tek başına iddianın yanlış olduğunu göstermez. "
+            "İlgili kullanım kanıtını okuyun veya açıklamayı desteklenen işlemlerle sınırlayın. "
+            f"Görülen referanslar: {', '.join(sorted(observed)) or 'yok'}."
+        )
     return issues

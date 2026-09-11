@@ -10,7 +10,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 
 import tools
-from navigation import ROUTE_INSTRUCTION, ASSESS_INSTRUCTION, REPAIR_INSTRUCTION, FILE_SUFFIXES
+from reference_checks import check_draft, callable_statement_index
+from navigation import ROUTE_INSTRUCTION, ASSESS_INSTRUCTION, REPAIR_INSTRUCTION, DRAFT_INSTRUCTION, VERIFY_INSTRUCTION, FILE_SUFFIXES
 from evidence import EvidenceError, EvidenceStore
 from protocol import (
     Assessment, CitationSelection, Draft, DraftClaim, ModelGateway, ProtocolError, Recovery, Review, RouteDecision,
@@ -74,6 +75,8 @@ class AgentResult:
     tool_calls: list = field(default_factory=list)
     model_trace: list = field(default_factory=list)
     diagnosis: dict | None = None
+    repository: dict = field(default_factory=dict)
+    file_searches: list = field(default_factory=list)
 
     def model_dump(self):
         return asdict(self)
@@ -111,6 +114,15 @@ def _reference_grounding_issues(draft, store):
                     and symbol.casefold() not in EXCLUDED_REFERENCE_SYMBOLS
                     and not re.search(rf"(?<!\w){re.escape(symbol)}(?!\w)", source)):
                 issues.append(f"Kod adı bağlı kanıtta yok: {symbol}")
+        # A displayed constant assignment is also a concrete source claim even
+        # when the model omitted Markdown backticks. Do not hardcode any name.
+        for symbol in re.findall(r'\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\s*=(?!=)', claim.answer):
+            if not re.search(rf'(?<!\w){re.escape(symbol)}(?!\w)', source):
+                issues.append(f"Sabit ataması bağlı kanıtta yok: {symbol}")
+        # Validate against THIS claim's citations, not every read file. Reading
+        # the right API elsewhere cannot support an unrelated cited function.
+        claim_source = [dict(id=item['block_id'], **item) for item in citations]
+        issues.extend(check_draft(claim.answer, claim_source))
     return list(dict.fromkeys(issues))
 
 
@@ -122,6 +134,7 @@ def _short(text, limit=320):
 
 def _number_tokens(text):
     """Kanıt eşleştirmesi için sayıları yazım farklarından arındırır."""
+    text = re.sub(r'(?m)^\s*\d+[\.)]\s+', '', text)
     return {match.group(0).lstrip("+").replace("_", "").replace(",", ".")
             for match in NUMBER_PATTERN.finditer(text)}
 
@@ -194,40 +207,10 @@ def _repair_numeric_citations(draft, store, question, gateway, hints):
     return repaired
 
 
-def _condition_grounding_issues(draft, store, question):
-    """Açıkça koşul istenince ilgili AST koşulunun eksiksiz aktarılmasını zorlar."""
-    if not re.search(r"\b(?:koşul\w*|condition\w*|predicate\w*)\b", question, re.IGNORECASE):
-        return []
-    conditions = store.observed_conditions()
-    if not conditions:
-        return ["İstenen koşul okunmuş Python kaynağından çıkarılamadı."]
-    question_names = set(SEARCH_TARGET_PATTERN.findall(question))
-    scored = [
-        (len(question_names & set(SEARCH_TARGET_PATTERN.findall(condition))), condition)
-        for condition in conditions
-    ]
-    best_score = max(score for score, _ in scored)
-    relevant = [condition for score, condition in scored if score == best_score]
-
-    def compact(value):
-        return re.sub(r"\s+", "", value).replace('"', "'")
-
-    def condition_satisfied(condition, text):
-        comp_ans = compact(text)
-        if compact(condition) in comp_ans:
-            return True
-        parts = [p.strip() for p in re.split(r"\s+and\s+", condition, flags=re.IGNORECASE)]
-        if len(parts) > 1 and all(compact(part) in comp_ans for part in parts):
-            return True
-        return False
-
-    answer_text = "\n".join(claim.answer for claim in draft.claims)
-    if any(condition_satisfied(condition, answer_text) for condition in relevant):
-        return []
-    return [
-        "İstenen kod koşulu eksik veya değiştirilmiş aktarıldı; ilgili okunmuş koşullardan "
-        f"biri eksiksiz verilmelidir: {' | '.join(relevant)}"
-    ]
+def _wants_source_quotes(question):
+    """Code presentation is controller-owned, not a model copy requirement."""
+    return bool(re.search(r"\b(?:kod\w*|koşul\w*|code|source|condition\w*|predicate\w*)\b",
+                          question, re.IGNORECASE))
 
 
 def _mechanism_grounding_issues(draft, store, question):
@@ -339,7 +322,7 @@ def _allowed_route_intents(question):
     """Cevabı değil, sorunun istediği araştırma türünü genel dil ipuçlarıyla sınırlar."""
     value = str(question)
     if re.search(
-        r"\b(?:çağrıl\w*|aktarıl\w*|iletil\w*|kullanım\s+yeri|call\w*|forward\w*|passed)\b",
+        r"\b(?:aktarıl\w*|iletil\w*|kullanım\s+yeri|forward\w*|passed)\b",
         value, re.IGNORECASE,
     ):
         return ["trace_call"]
@@ -350,9 +333,21 @@ def _allowed_route_intents(question):
     ):
         return ["explain_behavior"]
     return [
-        "locate_file", "find_definition", "find_references", "trace_call",
+        "list_files", "locate_file", "find_definition", "find_references", "trace_call",
         "explain_behavior", "configuration_lookup", "documentation", "general_code_search",
     ]
+
+
+def _question_review_facts(question):
+    """Freeze literal user clauses, never a reviewer's proposed answer.
+
+Split on question marks only so dotted identifiers and string literals remain
+intact. Keep at most six clauses, preserving any remainder in the last clause.
+"""
+    parts = [part.strip() for part in re.findall(r'[^?？]+[?？]?', question) if part.strip()]
+    if len(parts) > 6:
+        parts = parts[:5] + [' '.join(parts[5:])]
+    return list(dict.fromkeys(parts)) or [question]
 
 
 def _initial_search_targets(question, listing):
@@ -434,7 +429,7 @@ def _preferred_trace_actions(actions, frontier):
 
 def _cli_exit_code(status):
     """Cevap üreten taslak başarılı CLI çalışmasıdır; tamamlanamayanlar hatadır."""
-    return 0 if status == "review_required" else 1
+    return 0 if status in {"review_required", "files_listed"} else 1
 
 BUILTIN_NOISE = {
     "ValueError", "TypeError", "KeyError", "IndexError", "AttributeError",
@@ -442,7 +437,7 @@ BUILTIN_NOISE = {
     "None", "True", "False", "dict", "list", "str", "int", "float", "bool", "tuple", "set"
 }
 
-def _prioritize_route_searches(searches, question):
+def _prioritize_route_searches(searches, question, print_fn=builtins.print):
     """Router'ın ürettiği gürültülü veya gereksiz aramaları eler ve yürütme önceliğine göre sıralar."""
     if not searches or len(searches) <= 1:
         return searches
@@ -453,10 +448,10 @@ def _prioritize_route_searches(searches, question):
     for s in searches:
         if symbol_or_file_present:
             if s.query in BUILTIN_NOISE:
-                print(f"[ROUTE ÖNCELİKLENDİRME] Gürültülü yerleşik tip araması elendi: {s.query!r}")
+                print_fn(f"[ROUTE ÖNCELİKLENDİRME] Gürültülü yerleşik tip araması elendi: {s.query!r}")
                 continue
             if s.tool == "search_code" and len(s.query.split()) >= 3:
-                print(f"[ROUTE ÖNCELİKLENDİRME] Çok sözcüklü nesir araması elendi: {s.query!r}")
+                print_fn(f"[ROUTE ÖNCELİKLENDİRME] Çok sözcüklü nesir araması elendi: {s.query!r}")
                 continue
         valid_searches.append(s)
 
@@ -477,12 +472,12 @@ def _prioritize_route_searches(searches, question):
     ordered = sorted(valid_searches, key=priority)
     
     if ordered != searches:
-        print(f"[ROUTE ÖNCELİKLENDİRME] Son arama listesi: {[f'{s.tool}({s.query!r})' for s in ordered]}")
+        print_fn(f"[ROUTE ÖNCELİKLENDİRME] Son arama listesi: {[f'{s.tool}({s.query!r})' for s in ordered]}")
     
     return ordered
 
 
-def run_staged_agent(issue_text, gateway=None, json_output=False):
+def run_agent(issue_text, gateway=None, json_output=False, repository_info=None):
     """Aşamalar atlanamaz; araştırma hedefleri ve kaynak seçimi modele aittir."""
     gateway = gateway or ModelGateway(
         MODEL_NAME, think=MODEL_THINK, fast_model_name=FAST_MODEL_NAME,
@@ -508,12 +503,14 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
         for line in lines:
             print(f"- {_short(line)}")
 
-    def finish(status, findings=None, reason=""):
+    def finish(status, findings=None, reason="", file_searches=None):
         result = AgentResult(
             status=status, question=issue_text, findings=findings or [], reason=reason,
             stages=stages.copy(),
             tool_calls=([listing_call] if listing_performed else []) + store.tool_calls,
             model_trace=gateway.trace.copy(),
+            repository=repository_info or {'path': str(tools.PROJECT_ROOT)},
+            file_searches=file_searches or [],
         )
         if result.findings:
             evidence = [citation for finding in result.findings for citation in finding["evidence"]]
@@ -529,9 +526,25 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
             "findings": result.findings, "reason": result.reason,
             "model_calls": len(result.model_trace), "tool_calls": len(result.tool_calls),
             "diagnosis": result.diagnosis,
+            "repository": result.repository,
+            "file_searches": result.file_searches,
         }
         if json_output:
             builtins.print(json.dumps(payload, ensure_ascii=False, indent=2))
+        elif result.file_searches:
+            print('\n[DOSYA ARAMA SONUCU]')
+            for observation in result.file_searches:
+                print(f"- Desen: {observation['query']} | eşleşme: {observation['total_matches']}")
+                for name in observation['files']:
+                    print(f'  {name}')
+                if not observation['files']:
+                    print('  Bu desenle eşleşen görünür dosya bulunamadı.')
+                if observation['truncated']:
+                    print('  Sonuç sınırı uygulandı; bu liste tüm eşleşmeleri içermiyor.')
+                if observation['case_fallback']:
+                    print('  Tam harf eşleşmesi yok; büyük/küçük harf alternatifi gösterildi.')
+            print('[NOT] Dosya adları doğrudan filesystem aramasından gelir; kod davranışı çıkarımı yapılmadı.')
+            print(f'[ÖZET] {len(result.model_trace)} model çağrısı, {len(result.tool_calls)} araç çağrısı.')
         elif result.findings:
             print("\n[SONUÇ]")
             for finding in result.findings:
@@ -549,7 +562,12 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
                     start, end = citation["start_line"], citation["end_line"]
                     line_text = str(start) if start == end else f"{start}-{end}"
                     print(f"- {citation['file']}:{line_text}")
-            print("\n[NOT] Cevap kod kanıtlarıyla kontrol edildi; yine de insan incelemesi önerilir.")
+                    if _wants_source_quotes(issue_text):
+                        # Show the exact cited block, never model-reconstructed code.
+                        print("```")
+                        print(citation["quote"])
+                        print("```")
+            print("\n[NOT] Kaynak bağlantıları kontrol edildi. Model yorumu doğruluk garantisi değildir; insan incelemesi gerekir.")
             print(f"[CONFIDENCE] {confidence} — modelin öz değerlendirmesi; doğruluk garantisi değil.")
             print(f"[ÖZET] {len(result.model_trace)} model çağrısı, "
                   f"{len(result.tool_calls)} araç çağrısı.")
@@ -604,7 +622,22 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
             + [f"Gerekli kanıt: {item}" for item in route.requirements]
             + [f"İlk arama: {item.tool}({item.query!r})" for item in route.searches],
         )
-        requests = _prioritize_route_searches(route.searches, working_question)
+        requests = route.searches = _prioritize_route_searches(route.searches, working_question, print_fn=print)
+        if route.intent == 'list_files':
+            stage('SEARCH')
+            observations = []
+            # No code-reading fallback: setup metadata cannot prove a file list.
+            # The model chooses patterns; the controller returns actual matches.
+            for request in route.searches:
+                try:
+                    observation = tools.find_file_matches(request.query)
+                except ValueError as error:
+                    raise EvidenceError(str(error)) from error
+                observations.append(observation)
+                store.tool_calls.append({'tool': 'find_file', 'query': request.query,
+                                         'observation': observation})
+            stage('RESULT')
+            return finish('files_listed', file_searches=observations)
         candidate_ids = []
         research_rounds = 0
         recovery_rounds = 0
@@ -612,7 +645,7 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
         draft_stage = "DRAFT"
         review_issues = []
         review_feedback = {}
-        review_facts = None  # İlk bağımsız denetimden sonra kapsam turdan tura kaybolmaz.
+        review_facts = _question_review_facts(working_question)
         behavior_validation_attempted = set()
         allow_test_candidates = False
 
@@ -773,7 +806,7 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
                      "terminal_call_hints": terminal_calls,
                      "search_targets": search_targets[:16] if search_targets is not None else None,
                      "trace_frontier": trace_frontier,
-                     "observed_calls": store.observed_calls() if route.intent == "trace_call" else [],
+                     "observed_calls": store.observed_calls(),
                      "available_search_actions": (
                          valid_search_actions[:12] if valid_search_actions is not None
                          else search_actions
@@ -803,8 +836,10 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
                     if assessment.action == 'interpret' and not any(check.evidence_ids for check in assessment.checks):
                         return finish('insufficient_evidence', reason='Yorumlanacak kaynak seçilmedi.')
                     unread_values = store.unread_claim_values(assessment.checks)
+                    unread_values = list(dict.fromkeys(
+                        unread_values + store.unread_claim_helpers(assessment.checks)))
                     if unread_values:
-                        print('[KANIT EKSİĞİ] Modelin iddiasında kullandığı değerin tanımı '
+                        print('[KANIT EKSİĞİ] İddiada kullanılan değer veya yardımcının kodu '
                               'okunmamış. Taslak üretilmeden ilgili tanım seçilip okunacak.')
                         candidate_ids = unread_values
                         requests = []
@@ -861,50 +896,12 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
             else:
                 draft = gateway.ask(
                     draft_stage, Draft,
-                    REPAIR_INSTRUCTION if draft_stage == 'REVISE' else (
-                    "Answer the user's question concisely in Turkish, covering every requested fact. "
-                    "Write one separate claim for EACH answer_requirements ID, using that requirement_id exactly once. "
-                    "Each claim must actually answer that requested fact, including ALL parts if it contains multiple requests. "
-                    "The assessment_hint is an unverified model note, NOT evidence: check it against source before using it. "
-                    "Do not omit a requested effect, condition or outcome merely because another claim states a value. "
-                    "Do not promise to explain or say 'let's look at the code'. Provide the concrete answer directly. "
-                    "Give the actual conclusion, not a promise or plan to explain it. "
-                    "Do not add invented illustrative examples unless requested. "
-                    "Each claim must select the source BLOCK IDs that actually support it. "
-                    "Select evidence FIRST, then write only what those selected lines establish. "
-                    "Select both the definition block and the behavior block when a value is used elsewhere. "
-                    "If explaining WHY, cite a documented rationale separately from the behavior; "
-                    "do not infer the author's intent from domain knowledge. If no rationale is documented, say so. "
-                    "For behavior/comparison questions, identify the input property being varied and follow the code's "
-                    "operations in order. Explicitly decide whether each operation preserves, discards, normalizes or "
-                    "canonicalizes that property; the final same/different, true/false conclusion must follow that mechanism. "
-                    "Keep sequential operations distinct: if an earlier call succeeds but a later type check, guard or "
-                    "branch rejects its result, do not describe the earlier call as failed. Claim an exception/failure "
-                    "only when the observed exception path or return check applies. "
-                    "Respect lexical try/except control flow: an exception raised by any protected statement transfers "
-                    "to a matching handler, skips the remaining try statements, and follows that handler's return. "
-                    "When the question asks for the condition, predicate or filter ('koşul nedir?'), you MUST quote the exact code expression in backticks (e.g. `not entry.name.startswith('.') and entry.name not in EXCLUDED_DIRECTORIES`) directly from the observed source or observed_conditions, in addition to explaining its effect in Turkish. "
-                    "When the question asks for the mechanism ('mekanizma nedir?'), you MUST explicitly state the exception that is raised or caught (e.g. 'ValueError fırlatır'), quote the exact guard statement in backticks (e.g. `resolved_path.relative_to(PROJECT_ROOT)`) from the code or observed_exception_flows, and state the resulting return value or action (e.g. `None` / `return None`). ALL THREE parts (guard statement, exception name, and return value) must be present in the answer. "
-                    "Do not attribute that behavior to a helper merely because the helper is called; "
-                    "the helper must contain or determine the relevant condition in the supplied source. "
-                    "For an exception-based mechanism, name the protected statement that triggers the matching handler "
-                    "and the value/action produced by that handler; saying only 'there is try/except' is insufficient. "
-                    "A handler may catch a broader tuple than one protected statement can raise. For a concrete scenario, "
-                    "distinguish the applicable exception from the broader caught tuple; never claim every caught type is "
-                    "raised by the same statement unless the supplied source establishes that. "
-                    "When a repository test is supplied, interpret its assertions as secondary behavioral evidence. "
-                    "In unittest semantics assertEqual(left, right) requires equal results and assertNotEqual(left, right) "
-                    "requires different results; do not state the opposite. Treat an old review issue as a rejected claim, "
-                    "not as a fact to repeat. "
-                    "Do not invent file paths, line numbers or quotes in the answer; these are attached by the controller. "
-                    "Never make claims (positive or negative) about a file that has not been read in the supplied source blocks. "
-                    "Use backticks for repository symbol names. Include confidence as your self-assessment between 0 and 1. "
-                    "If revising, remove/correct unsupported statements using ONLY the supplied source."),
+                    REPAIR_INSTRUCTION if draft_stage == 'REVISE' else DRAFT_INSTRUCTION,
                     {"question": working_question, "source": store.source_context(),
+                     "callable_statements": callable_statement_index(store.source_context()),
                      "answer_requirements": [
-                         {"id": f"Q{index}", "requested_fact": check.requested_fact,
-                          **({'assessment_hint': check.observed_answer} if draft_stage == 'DRAFT' else {})}
-                         for index, check in enumerate(assessment.checks, 1)
+                         {"id": f"Q{index}", "requested_fact": fact}
+                         for index, fact in enumerate(_question_review_facts(working_question), 1)
                      ],
                      "observed_conditions": store.observed_conditions(),
                      "observed_exception_flows": store.observed_exception_flows(),
@@ -929,9 +926,8 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
                 ])
                 findings = _findings(draft, store)
                 numeric_issues = _numeric_grounding_issues(draft, store, working_question)
-            condition_issues = _condition_grounding_issues(draft, store, working_question)
             mechanism_issues = _mechanism_grounding_issues(draft, store, working_question)
-            grounding_issues = numeric_issues + condition_issues + mechanism_issues + _reference_grounding_issues(draft, store)
+            grounding_issues = numeric_issues + mechanism_issues + _reference_grounding_issues(draft, store)
             decision(
                 "KANIT BAĞLAMA — GROUNDING",
                 grounding_issues or ["Sayısal iddialar kendi kanıtlarıyla eşleşiyor."],
@@ -958,28 +954,11 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
                 # Değerlendirme, planner'ın konuşmasını değil yalnız soruyu ve seçilen kaynakları görür.
                 review = gateway.ask(
                     "VERIFY", Review,
-                    "Check the ORIGINAL question against the cited code and proposed answer. "
-                    "Return question_checklist, issues, supported, complete. No repaired answer. "
-                    "On the first review split the ORIGINAL question into distinct requested facts; add no new questions. "
-                    "If review_facts is supplied, check EVERY listed fact exactly once; do not merge or drop facts. "
-                    "For each fact give covered, a SHORT explanation and answer_ids selecting the numbered answer items. "
-                    "Do not copy quotes. A fact only in source but omitted from the answer is NOT covered: answer_ids=[]. "
-                    "Check that the selected answer actually answers that fact, not merely mentions the same symbol. "
-                    "Do not merge a requested value, identifier and resulting behavior into one checklist item. "
-                    "complete must be false if any requested fact is omitted or only promised. "
-                    "A promise to explain is not an answer. A variable name is not its concrete value. "
-                    "Check every requested result and mechanism, not just whether the topic is mentioned. "
-                    "Trace input type, executed operations, branches and early returns in order. "
-"Do not confuse a successful operation with rejection by a later check. "
-                    "A caught exception tuple does not establish which exception a specific operation raises. "
-                    "Use standard language semantics; do not guess unknown external behavior. "
-                    "Distinguish hypothetical examples from claims about repository constants. "
-                    "For ambiguous input types require an explicit assumption or both interpretations. "
-                    "Reject concrete unsupported/contradictory claims or missing requested facts, briefly in issues. "
-                    "If review_feedback contains previous issues, strictly verify that the new answer actually resolves them. "
-                    "Accept only if supported and complete; use issues=[] on acceptance. "
-                    + trace_review_instruction,
+                    VERIFY_INSTRUCTION + trace_review_instruction,
                     {"question": working_question, "findings": findings,
+                     "callable_statements": callable_statement_index([
+                         citation for finding in findings for citation in finding['evidence']
+                     ]),
                      "require_answer_coverage": True,
                      "review_facts": review_facts,
                      "answer_items": [{'id': index, 'answer': item['answer']}
@@ -995,8 +974,6 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
                      "observed_exception_flows": store.observed_exception_flows()},
                     allowed_review_facts=review_facts,
                 )
-                if review_facts is None:
-                    review_facts = [item.requested_fact for item in review.question_checklist] or None
             decision(
                 "KONTROL — VERIFY" if not grounding_issues else "KONTROL — GROUNDING",
                 [f"Kapsam: {item.requested_fact} → {'var' if item.covered else 'eksik'} "
@@ -1030,7 +1007,7 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
             if recovery_rounds >= MAX_RECOVERY_ROUNDS:
                 return finish("insufficient_evidence", reason="; ".join(review_issues))
 
-            if condition_issues or mechanism_issues:
+            if mechanism_issues:
                 # İstenen predicate zaten okunmuş AST'den controller tarafından
                 # çıkarıldı. Eksik olan yeni kaynak değil, taslağın ifadesidir;
                 # modeli gereksiz repository aramasına göndermeden düzelt.
@@ -1129,37 +1106,31 @@ def run_staged_agent(issue_text, gateway=None, json_output=False):
         return finish("stopped", reason=str(error))
 
 
-def run_agent(issue_text, gateway=None, json_output=False):
-    """Public entry point: task-scoped Phase 1/2 controller."""
-    from repository_agent import run_repository_agent
-    gateway = gateway or ModelGateway(MODEL_NAME, think=MODEL_THINK)
-    if isinstance(gateway, ModelGateway):
-        gateway.progress = None if json_output else lambda: builtins.print('.', end='', flush=True)
-        gateway.report = None if json_output else lambda item: builtins.print(
-            f"\n[SÜRE] {item['stage']}: {item['seconds']:.1f} sn", flush=True)
-        if not json_output:
-            builtins.print(f'[MODEL] {gateway.model_name} | thinking: {gateway.think}')
-    return AgentResult(**run_repository_agent(issue_text, gateway, json_output))
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Staged read-only local coding agent")
     parser.add_argument("issue", help="Araştırılacak soru")
-    parser.add_argument("--repo", type=Path, default=tools.PROJECT_ROOT,
-                        help="Seçili repository; varsayılan bu projenin kökü.")
+    parser.add_argument("--repo", default=str(tools.PROJECT_ROOT),
+                        help="Yerel klasör veya public https://github.com/SAHIP/REPO bağlantısı.")
     parser.add_argument("--model", default=MODEL_NAME, help="Ollama model adı.")
-    parser.add_argument('--legacy-staged', action='store_true', help='Önceki aşamalı akışı karşılaştırma için kullan.')
 
     parser.add_argument(
         "--json", action="store_true",
         help="Kısa kullanıcı çıktısı yerine alıntılar dahil ayrıntılı JSON yazdır.",
     )
     args = parser.parse_args()
-    tools.PROJECT_ROOT = args.repo.resolve()
-    if not tools.PROJECT_ROOT.is_dir():
-        parser.error("--repo var olan bir klasör olmalıdır.")
-    runner = run_staged_agent if args.legacy_staged else run_agent
-    result = runner(args.issue, json_output=args.json, gateway=ModelGateway(
+    from repository_source import prepare_repository, RepositorySourceError
+    try:
+        selected_repo = prepare_repository(args.repo)
+    except RepositorySourceError as error:
+        parser.error(str(error))
+    tools.PROJECT_ROOT = selected_repo.path
+    if not args.json:
+        print(f'[REPOSITORY] {selected_repo.path}')
+        if selected_repo.commit:
+            print(f'[COMMIT] {selected_repo.commit}')
+            print('[NOT] Yeni yerel kopya kullanılıyor; proje kodu veya testleri çalıştırılmayacak.')
+    runner = run_agent
+    result = runner(args.issue, json_output=args.json, repository_info=selected_repo.metadata(), gateway=ModelGateway(
         args.model, think=MODEL_THINK, fast_model_name=FAST_MODEL_NAME,
     ))
     # İnceleme notu taşıyan fakat cevap üreten çalışma CLI açısından tamamlanmıştır.

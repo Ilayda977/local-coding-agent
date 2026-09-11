@@ -1,6 +1,8 @@
 import ast
 import os
 import re
+from fnmatch import fnmatchcase
+from functools import lru_cache
 from pathlib import Path
 from navigation import symbol_match_rank
 
@@ -90,39 +92,78 @@ def list_files(directory_path="."):
     return f"{_display_path(directory)} içindeki dosya ve klasörler:\n" + "\n".join(entries)
 
 
-def find_file(file_name, directory="."):
-    """Dosya içeriğini değil, proje-içi dosya adını/yolunu arar."""
+def _path_pattern_matches(path, pattern):
+    """* and ? match one component; a standalone ** spans directories."""
+    parts, wanted = path.split('/'), pattern.split('/')
+
+    @lru_cache(None)
+    def match(i, j):
+        if j == len(wanted):
+            return i == len(parts)
+        if wanted[j] == '**':
+            return match(i, j + 1) or (i < len(parts) and match(i + 1, j))
+        return i < len(parts) and fnmatchcase(parts[i], wanted[j]) and match(i + 1, j + 1)
+    return match(0, 0)
+
+
+def find_file_matches(file_name, directory="."):
+    """Structured file observation; no file contents or invented line citations."""
     search_directory = _resolve_safe_path(directory)
     if search_directory is None or not search_directory.is_dir():
-        return "HATA: Proje içinde geçerli bir arama klasörü gerekli."
+        raise ValueError("Proje içinde geçerli bir arama klasörü gerekli.")
     if not isinstance(file_name, str) or not file_name.strip():
-        return "HATA: Dosya adı boş olamaz."
-
+        raise ValueError("Dosya adı boş olamaz.")
     query = file_name.strip().replace("\\", "/")
+    if query.startswith('./'):
+        query = query[2:]
+    if (len(query) > 200 or len(query.split('/')) > 32 or query.startswith(('/', '~'))
+            or ':' in query or any(ord(c) < 32 for c in query)
+            or any(part in ('', '.', '..') for part in query.split('/'))):
+        raise ValueError("Dosya deseni göreli ve repository içinde olmalıdır; üst dizin/absolute yol yasak.")
+    patterned = any(c in query for c in '*?[')
     exact, fallback = [], []
-    for root, directories, files in os.walk(search_directory):
+    def walk_error(error):
+        raise ValueError('Dosya listesi tamamlanamadı; bir klasöre erişilemedi.') from error
+    for root, directories, files in os.walk(search_directory, onerror=walk_error, followlinks=False):
         directories[:] = [
             name for name in directories
             if name not in EXCLUDED_DIRECTORIES and not name.startswith(".")
+            and _resolve_safe_path(Path(root) / name) is not None
+            and not (Path(root) / name).is_symlink()
         ]
         for name in files:
             if name.startswith("."):
                 continue
             path = Path(root) / name
-            if _resolve_safe_path(path) is None:
+            if _resolve_safe_path(path) is None or not path.is_file():
                 continue
             relative = _display_path(path)
-            row = ((_result_priority(path, "", query), relative),
-                   f"{relative} (Satır 1): [DOSYA] {relative}")
-            if relative == query or name == query:
-                exact.append(row)
+            match_path = path.relative_to(search_directory).as_posix()
+            if patterned:
+                if _path_pattern_matches(match_path, query):
+                    exact.append(relative)
+            elif relative == query or match_path == query or name == query:
+                exact.append(relative)
             elif relative.casefold() == query.casefold() or name.casefold() == query.casefold():
-                fallback.append(row)
+                fallback.append(relative)
+    matches = sorted(set(exact or fallback))
+    return {'query': query, 'directory': _display_path(search_directory),
+            'files': matches[:MAX_SEARCH_RESULTS], 'total_matches': len(matches),
+            'truncated': len(matches) > MAX_SEARCH_RESULTS,
+            'case_fallback': not exact and bool(fallback)}
 
-    matches = exact or fallback
-    if not matches:
-        return f"Dosya bulunamadı: Projede '{query}' adlı dosya yok."
-    results = [(priority, text) for (priority, _), text in matches]
+
+def find_file(file_name, directory="."):
+    """Exact filename or safe relative glob; * stays in one folder, ** recurses."""
+    try:
+        observation = find_file_matches(file_name, directory)
+    except ValueError as error:
+        return f'HATA: {error}'
+    if not observation['files']:
+        return f"Dosya bulunamadı: '{observation['query']}' aramasıyla eşleşen dosya yok."
+    results = [((0, name), f'{name} (Satır 1): [DOSYA] {name}') for name in observation['files']]
+    if observation['truncated']:
+        results.append(((1, ''), f"NOT: {observation['total_matches']} eşleşmenin ilk {MAX_SEARCH_RESULTS} tanesi gösterildi."))
     return _format_search_results("Bulunan dosyalar", results)
 
 
@@ -292,7 +333,15 @@ def find_symbol(symbol_name, directory="."):
                                 parent = parents.get(parent)
                             wanted = symbol_name.strip().split('.')
                             actual = '.'.join(parts[-len(wanted):])
-                            rank = symbol_match_rank('.'.join(wanted), actual)
+                            # Preserve class scope, and also allow real module-qualified
+                            # definitions. This is source-path matching, not alias resolution.
+                            module = list(file_path.relative_to(search_directory).with_suffix('').parts)
+                            if module[-1] == '__init__':
+                                module.pop()
+                            qualified = '.'.join((module + parts)[-len(wanted):])
+                            ranks = [symbol_match_rank('.'.join(wanted), candidate)
+                                     for candidate in (actual, qualified)]
+                            rank = min((item for item in ranks if item is not None), default=None)
                             if rank in (1, 2):
                                 suggested_lines[node.lineno] = min(rank, suggested_lines.get(node.lineno, rank))
                             return rank == 0

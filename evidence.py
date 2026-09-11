@@ -247,6 +247,47 @@ class EvidenceStore:
             self._candidate(candidate.file, end + 1, "Devamındaki bağlam (yalnız gerekliyse oku)")
         return added
 
+    def unread_claim_helpers(self, checks):
+        """Locate directly called, same-module helpers named in supported claims.
+
+        Locators are not evidence. Dynamic calls and import aliases are not
+        resolved here; the normal research tools remain available for those.
+        """
+        self.assert_unchanged()
+        observed = {(line.file, line.line) for line in self.lines.values()}
+        candidates = []
+        for check in checks:
+            if check.status != 'supported':
+                continue
+            mentioned = set(re.findall(r'\b[^\W\d]\w*\b', check.observed_answer))
+            for citation in self.block_citations(check.evidence_ids):
+                file = citation['file']
+                if not file.endswith('.py'):
+                    continue
+                try:
+                    block = ast.parse(textwrap.dedent(citation['quote']))
+                    tree = ast.parse(self._path(file).read_text(encoding='utf-8'))
+                except (SyntaxError, UnicodeError, OSError):
+                    continue
+                calls = {node.func.id for node in ast.walk(block)
+                         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+                # Do not mistake parameters or local bindings for module helpers.
+                bound = {node.arg for node in ast.walk(block) if isinstance(node, ast.arg)}
+                bound.update(node.id for node in ast.walk(block)
+                             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store))
+                bound.update(node.name for node in ast.walk(block)
+                             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)))
+                needed = (calls & mentioned) - bound
+                for node in tree.body:
+                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name not in needed:
+                        continue
+                    missing = next((number for number in range(node.lineno, node.end_lineno + 1)
+                                    if (file, number) not in observed), None)
+                    if missing is not None:
+                        candidates.append(self._candidate(
+                            file, missing, 'İddiada anılan yardımcının okunmamış kodu: ' + node.name).id)
+        return list(dict.fromkeys(candidates))[:4]
+
     def unread_claim_values(self, checks):
         """Modelin iddiasında kullandığı, henüz tanımı okunmamış yerel değerler.
 
@@ -316,12 +357,14 @@ class EvidenceStore:
                             if file_name.startswith("test_") or not file_name.endswith(".py") or file_name.endswith("_test.py"):
                                 continue
                             other_path = Path(root) / file_name
+                            if tools._resolve_safe_path(other_path) is None:
+                                continue
                             rel_other = str(other_path.relative_to(tools.PROJECT_ROOT))
                             if rel_other == file:
                                 continue
                             try:
                                 other_tree = ast.parse(other_path.read_text(encoding='utf-8'))
-                            except (SyntaxError, UnicodeError):
+                            except (SyntaxError, UnicodeError, OSError):
                                 continue
                             for statement in other_tree.body:
                                 if not isinstance(statement, (ast.Assign, ast.AnnAssign)) or statement.value is None:
@@ -498,6 +541,20 @@ class EvidenceStore:
 
         unresolved = set(self.search_targets())
         actions = []
+        # A qualified call can refer to a sibling Python module, rather than a
+        # class method. Offer its real path and callable as locators, not proof.
+        for call in self.observed_calls():
+            try:
+                expression = ast.parse(call['call'], mode='eval').body
+            except SyntaxError:
+                continue
+            func = expression.func if isinstance(expression, ast.Call) else None
+            if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+                relative = Path(call['file']).parent / (func.value.id + '.py')
+                path = tools._resolve_safe_path(str(relative))
+                if path is not None and path.is_file():
+                    actions.extend(({'tool': 'find_file', 'query': relative.as_posix()},
+                                    {'tool': 'find_symbol', 'query': func.attr}))
         for name in sorted(unresolved):
             if (Path(tools.PROJECT_ROOT) / f"{name}.py").is_file():
                 actions.append({"tool": "find_file", "query": f"{name}.py"})
@@ -767,6 +824,8 @@ class EvidenceStore:
             for kind in ("source", "test", "docs", "other")
         }
         if policy == "code_only":
+            # Strict application-source policy. Test inspection is selected
+            # explicitly via any; it must not leak into code_only candidates.
             return by_kind["source"]
         if policy == "code_first" and by_kind["source"]:
             return by_kind["source"]

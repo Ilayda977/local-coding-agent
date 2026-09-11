@@ -69,7 +69,7 @@ class SearchRequest(StrictModel):
     tool: Literal[
         "find_file", "find_symbol", "find_references", "find_calls", "find_tests", "search_code",
     ] = Field(description=(
-        "find_file: existing filename/path, not contents; find_symbol: definition of a code name or Class.method; "
+        "find_file: filename/path or relative glob, not contents (* one directory, ** recursive, ? one character); find_symbol: definition of a code name or Class.method; "
         "find_references: uses of a name; find_calls: invocation sites; find_tests: tests using a name; "
         "search_code: literal code text, not a natural-language question. Results are locators: read before explaining."
     ))
@@ -95,7 +95,7 @@ class SearchRequest(StrictModel):
 
 class RouteDecision(StrictModel):
     intent: Literal[
-        "locate_file", "find_definition", "find_references", "trace_call",
+        "list_files", "locate_file", "find_definition", "find_references", "trace_call",
         "explain_behavior", "configuration_lookup", "documentation", "general_code_search",
     ]
     entities: list[str] = Field(min_length=1, max_length=6, description=(
@@ -105,6 +105,12 @@ class RouteDecision(StrictModel):
     requirements: list[str] = Field(min_length=1, max_length=6)
     searches: list[SearchRequest] = Field(min_length=1, max_length=2)
     decision_summary: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode='after')
+    def listing_uses_file_search(self):
+        if self.intent == 'list_files' and any(s.tool != 'find_file' for s in self.searches):
+            raise ValueError('list_files intent requires only find_file searches for actual file names.')
+        return self
 
 
 class Plan(StrictModel):
@@ -205,7 +211,7 @@ class TraceDraft(StrictModel):
 
 
 class QuestionCheck(StrictModel):
-    requested_fact: str = Field(min_length=1, max_length=180, description=(
+    requested_fact: str = Field(min_length=1, max_length=2000, description=(
         "One distinct fact explicitly requested by the original question."
     ))
     covered: bool
@@ -407,12 +413,18 @@ def render_stage_message(stage, data, schema):
             {"answer": finding["answer"], "evidence": [register(block) for block in finding.get("evidence", [])]}
             for finding in metadata["findings"]
         ]
-    sections = ["TASK DATA:\n" + json.dumps({"stage": stage, "data": metadata},
-                                           ensure_ascii=False)]
+    task_section = "TASK DATA:\n" + json.dumps({"stage": stage, "data": metadata},
+                                              ensure_ascii=False)
+    # In review, present the original question and code before the proposed
+    # answer. This reduces answer-first framing; it is not an independent judge.
+    sections = (["ORIGINAL QUESTION:\n" + json.dumps(data.get("question", ""), ensure_ascii=False)]
+                if stage == "VERIFY" else [task_section])
     for (key, file, start, end), quote in blocks.items():
         label = json.dumps({"id": key, "file": file, "start_line": start, "end_line": end},
                            ensure_ascii=False)
         sections.append(f"BEGIN UNTRUSTED SOURCE {label}\n{quote}\nEND UNTRUSTED SOURCE")
+    if stage == "VERIFY":
+        sections.append(task_section)
     sections.append("REQUIRED RESPONSE SCHEMA:\n" + json.dumps(schema, ensure_ascii=False))
     return "\n\n".join(sections)
 

@@ -1,3 +1,20 @@
+# Güncel durum — 11 Eylül 2026
+
+Bu dosyanın aşağıdaki bölümleri tarihsel çalışma notlarıdır. Birbirinden farklı
+sürüm ve test sayılarını içerir; tek bir güncel kabul raporu değildir.
+
+- Altyapı: read-only araçlar, repository sınırı, küçük kaynak okumaları,
+  yapılandırılmış diagnosis, kanıt kimlikleri ve sınırlı yeniden araştırma mevcut.
+- Son canlı sonuçlar: hedef sapması ve kaynaktan yanlış davranış çıkarımı var.
+  VERIFY onayı veya yüksek confidence, bu yanlış cevapları başarılı yapmaz.
+- Son düzenleme: kapsamı koruyan nitelikli arama ve kısa, ortak aşama talimatları.
+- Doğrulama: bu düzenleme için canlı model / birim test çalıştırması yapılmadı;
+  çalıştırma komutu REVIEW_2026_09_11.md içindedir.
+- Faz 3 tasarımı başlayabilir. Faz 2'nin 4/5 doğru diagnosis kabul kaydı
+  ayrıca tutulmalı; aşağıdaki eski “tamamlandı / %100” ifadeleri güncel garanti değildir.
+
+---
+
 # Faz 2 — Aşamalı araştırma ve kanıt kaydı
 
 ## Kaynak karşılaştırması ve recovery sözleşmesi
@@ -12,10 +29,9 @@ incelenmiş kabul edilmedi. Karşılaştırılan birincil kaynaklar:
 Recovery talimatındaki yalnız belirli isimlerden seçim şartı ve reviewer
 kelimeleriyle eşleşmeyen kaynak ipuçlarını silen kontrol kaldırıldı.
 Araç açıklamaları şemaya eklendi; boş arama kararı reddediliyor.
-183 modelsiz birim test ve 5 zorlu Canlı Qwen (qwen2.5-coder:7b) uçtan uca senaryosu %100 başarıyla geçti. 
+183 modelsiz birim test ve zorlu Canlı Qwen (qwen2.5-coder:7b) uçtan uca senaryoları çalıştırıldı. 
 Eski (legacy) `--research-loop` mimarisi silinip tek geçerli sistem (Staged Agent) olarak `run_staged_agent` mimarisi (Artık `run_agent`) yerleştirildi.
-**Faz 2 Başarıyla Tamamlandı.**
-
+**Faz 2 altyapısı tamamlandı.** Ancak "4/5 kabul ölçümü geçti" iddiası mevcut kayıtlarla tam desteklenmiyor, incelemelerde modelin teknik ifade (liste vs sözlük) kaba hataları devam etmektedir.
 
 ## Son arama regresyonu — 5 Eylül 2026
 
@@ -50,7 +66,7 @@ başarı henüz ölçülmedi; kısa VERIFY yanlış onayı tamamen engellemez.
 Baseline Qwen2.5-Coder 7B, hedef kullanıcının kendi reposudur. Aşağıdaki eski
 model tercihleri ve süre ayarları tarihsel kayıttır.
 
-Son güncelleme: 3 Eylül 2026. **Faz 2 tamamlanmadı.** Kaynak doğrulama mekanizması ile modelin doğru cevap üretmesi ayrı değerlendirilir.
+Son güncelleme: 11 Eylül 2026. **Faz 2 altyapısı tamamlandı.** Kaynak doğrulama mekanizması devrede, ancak modelin tam doğru ve teknik olarak hassas cevaplar (örn. sözlük vs liste) üretmesi (4/5 kabul ölçütü) tam anlamıyla sağlanmış sayılmıyor.
 
 ## İstenen davranış
 

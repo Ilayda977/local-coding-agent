@@ -9,6 +9,24 @@ from protocol import EvidenceCheck, SearchRequest
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_dependency_scan_does_not_read_outside_symlink(self):
+        self.path.write_text('def wait():\n    return EXTERNAL_LIMIT\n')
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / 'outside.py'
+            outside.write_text('EXTERNAL_LIMIT = 71\n')
+            link = self.root / 'linked.py'
+            link.symlink_to(outside)
+            ids = self.store.search(SearchRequest(tool='find_symbol', query='wait'))
+            self.store.read(ids[0])
+            original = Path.read_text
+            def guarded(path, *args, **kwargs):
+                if path == link or path == outside:
+                    raise AssertionError('Outside source must not be read')
+                return original(path, *args, **kwargs)
+            with patch.object(Path, 'read_text', guarded):
+                self.assertEqual(self.store.unread_claim_values([
+                    self.value_check('EXTERNAL_LIMIT kullanılır.')]), [])
+
     def value_check(self, answer):
         return EvidenceCheck(requested_fact='Dönüş değeri', observed_answer=answer,
                              evidence_ids=['E1'], status='supported')
@@ -85,6 +103,25 @@ class EvidenceTests(unittest.TestCase):
         selected = self.store.candidates_for_policy(ids, "code_first")
         self.assertTrue(selected)
         self.assertTrue(all(self.store.candidates[key].source_kind == "source" for key in selected))
+
+    def test_code_only_excludes_tests_and_docs(self):
+        (self.root / 'test_settings.py').write_text('# DELAY\n')
+        (self.root / 'README.md').write_text('DELAY\n')
+        ids = self.store.search(SearchRequest(tool='search_code', query='DELAY'))
+        selected = self.store.candidates_for_policy(ids, 'code_only')
+        self.assertTrue(selected)
+        self.assertEqual({self.store.candidates[key].file for key in selected},
+                         {'settings.py'})
+        all_selected = self.store.candidates_for_policy(ids, 'any')
+        self.assertEqual({self.store.candidates[key].source_kind for key in all_selected},
+                         {'source', 'test', 'docs'})
+
+    def test_code_only_does_not_fall_back_to_test_only_matches(self):
+        (self.root / 'test_settings.py').write_text('# unique_marker\n')
+        ids = self.store.search(SearchRequest(tool='search_code', query='unique_marker'))
+        self.assertTrue(ids)
+        self.assertEqual(self.store.candidates_for_policy(ids, 'code_only'), [])
+        self.assertEqual(self.store.candidates_for_policy(ids, 'any'), ids)
 
     def test_reference_search_reads_a_real_usage(self):
         ids = self.store.search(SearchRequest(tool="find_references", query="DELAY"))

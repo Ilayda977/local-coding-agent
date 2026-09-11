@@ -1,23 +1,76 @@
 # Local Coding Agent
 
+## Dosya deseniyle listeleme
+
+`find_file` göreli dosya desenlerini destekler: `sample/*.py` yalnız o klasördeki
+Python dosyaları, `sample/**/*.py` o klasör ve alt klasörleri, `**/*.py` tüm
+görünür repository ağacındaki Python dosyalarıdır. `?` tek karakter, `[ab]`
+karakter seçimi yapar. Desenler büyük/küçük harfe duyarlıdır; desensiz tam ad
+aramasının mevcut harf alternatifi desteği korunur. Üst dizin/absolute yollar,
+repository dışı symlink hedefleri, gizli ve hariç tutulan klasörler aranmaz.
+
+Yalnız isim listesi isteyen `list_files` niyetinde model deseni seçer; sonuç
+filesystem eşleşmelerinden controller tarafından üretilir. Kod okunmuş gibi
+uydurma satır kanıtı verilmez. `--json` çıktısında `file_searches`, `files`,
+`total_matches` ve `truncated` alanları bulunur. Boş eşleşme yalnız verilen desen
+için geçerlidir. Sonuç sınırı varsa tüm dosyaların listelendiği iddia edilmez.
+Model yanlış desen seçebilir; deseni ve sonuçları birlikte kontrol edin.
+Kod davranışı da isteniyorsa bu kısa yol değil mevcut araştırma akışı kullanılır.
+
+## Başka bir GitHub repository'sinde araştırma
+
+Public repository'nin ana HTTPS bağlantısını ver (SAHIP ve REPO alanlarını değiştir):
+
+```bash
+./venv/bin/python agent.py --repo https://github.com/SAHIP/REPO "Bu projede araştırmak istediğim soru"
+```
+
+`repository_source.py` sistemdeki Git ile varsayılan branch'in son commit'ini
+sığ olarak indirir. Git kurulu olmalıdır; ek Python bağımlılığı gerekmez.
+Çıktıdaki `[REPOSITORY]` yolu ve `[COMMIT]` kimliği hangi kopyanın incelendiğini
+gösterir; `--json` sonucunun `repository` alanına da kaydedilir.
+
+- Her URL çalıştırması yeni bir geçici klasöre indirir, mevcut projeyi değiştirmez.
+- Sonraki soruda tekrar indirmemek için `[REPOSITORY]` yolunu `--repo` olarak ver.
+  Aynı kopya/commit ile karşılaştırılabilir denemeler yapabilirsin.
+- Kopya işlem sonunda silinmez; geçici dizin işletim sistemi tarafından daha sonra
+  temizlenebilir. Kalıcı değerlendirme için kopyayı kendi seçeceğin klasörde sakla.
+- Yalnız public `https://github.com/SAHIP/REPO` (veya `.git`) desteklenir. Özel
+  repository, token, SSH, branch/tree/issue bağlantıları desteklenmez. İndirme
+  yönlendirmeleri kabul edilmez; taşınmış repo için güncel ana bağlantıyı kullan.
+- Git hook'ları, global Git filtreleri, submodule indirme ve kimlik istemleri
+  devre dışıdır. LFS içerikleri indirilmez. Proje kodu/testleri çalıştırılmaz;
+  bağımlılık kurulmaz. Bu bir işletim sistemi sandbox'ı değildir; Git güncel tutulmalıdır.
+- İndirme zaman aşımı 180 saniyedir; toplam indirme boyut sınırı yoktur. Küçük
+  repository'lerle başla. Ajanın küçük kaynak parçaları ve context sınırları devam eder.
+- Başka repository'de daha çok soru sormak başarı ölçümünü genişletir; cevapların
+  doğruluğu yine kodla kontrol edilmelidir. Bu özellik test çalıştırma aracı değildir.
+
+Bu modülün ağsız testleri: `./venv/bin/python -m unittest test_repository_source`.
+Canlı GitHub indirmesi henüz bu değişiklik kapsamında denenmemiştir.
+
 Küçük bir yerel dil modelini, tüm repository'yi context'e yüklemeden kod tabanında araştırma yapabilen güvenli bir **read-only coding agent**a dönüştürme projesi.
 
 Bu çalışma, güçlü bir bulut modelini kopyalamayı hedeflemez. Amaç; Apple M3, 16 GB unified memory üzerinde çalışan küçük bir coding modelinin doğru tool tasarımı, context engineering ve controller guardrail'leri ile repository seviyesindeki kod görevlerinde ne kadar kullanılabilir hale getirilebileceğini ölçmektir.
 
-## Güncel Durum: Faz 2 Devam Ediyor
+## Güncel durum — 11 Eylül 2026
 
-**8 Eylül 2026:** Varsayılan giriş artık `repository_agent.py` içindeki sabit
-istek sözleşmeli controller'dır. Hedef, girdiler/varsayımlar ve Q kimlikli sonuç
-istekleri araştırma boyunca korunur. Eski aşamalı akış silinmedi;
-`--legacy-staged` ile karşılaştırılabilir. Yeni mimari ve henüz doğrulanmamış
-kabul durumu: [Faz 1–2 mimarisi](PHASE12_ARCHITECTURE.md).
+Faz 1–2'nin read-only araştırma ve kanıtlı diagnosis altyapısı mevcut.
+Hedef yüzde yüz doğru bir model değil; güvenli araçlar, sınırlı context,
+izlenebilir kararlar ve açık başarısızlık durumları olan bir öğrenme projesidir.
 
-**Aşağıdaki aşama şeması ve test sayıları önceki akışın tarihsel kaydıdır;
-yeni controller'ın test veya canlı başarı sonucu değildir.**
+Son kullanıcı denemelerinde yanlış çıktı yorumu ve yanlış araştırma hedefi
+görüldü. Modelin VERIFY onayı doğruluk kanıtı değildir; AST kontrolleri de
+doğal dildeki tüm iddiaları ispatlamaz. Önceki yüzde yüz başarı ifadeleri
+güncel sürümün kabul ölçümü olarak kullanılmamalıdır.
 
-Controller, araştırmayı açık aşamalarla yönetir. Model arama hedeflerini ve kaynak adaylarını seçer; controller gerçekten okunan koddan kanıt blokları, dosya yolları, satır aralıkları ve alıntılar üretir. Policy içinde örnek soruların cevapları veya belirli bir hedef dosyaya yönlendirme yoktur.
+Akış korunmuş, aşama talimatları sadeleştirilmiş ve nitelikli sembol
+aramalarının kapsam kaybı giderilmiştir. Bu değişikliğin canlı model başarısı
+henüz ölçülmedi. Ayrıntılar: [Mimari inceleme](REVIEW_2026_09_11.md).
 
-148 otomatik test geçmektedir; bunlar modelin görev başarısı değildir. Gerçek model denemeleri hâlâ araştırma kararı, zaman aşımı ve kod yorumlama hataları gösterebilir. Model kontrolünden geçen açıklamalar bile iç kayıtta `review_required` (insan incelemesi gereken taslak) durumunu taşır; kesin doğru cevap sayılmaz. **Faz 2 tamamlanmış değildir.** Güncel ölçümler ve sınırlamalar: [Faz 2 değerlendirme kaydı](PHASE2_STATUS.md).
+Faz 3 tasarımına başlanabilir; **Faz 2 altyapısı tamamlandı**. Ancak 4/5 doğru diagnosis ölçütü (özellikle teknik ifadelerdeki model kaynaklı hatalar yüzünden) tam olarak desteklenmemektedir.
+kriteri ayrı, sabit bir soru setinde insan incelemesiyle kaydedilmelidir.
+Faz 3 yazma/patch yetkisi bu değişiklikle eklenmemiştir.
 
 Arama önce literal eşleşmeyi kullanır. Eşleşme yoksa çok sözcüklü sorgudaki
 en fazla dört terimin gerçek sembol tanımları aday gösterilir; bu geri dönüş
@@ -190,9 +243,9 @@ env LOCAL_CODING_AGENT_MODEL=qwen3.5:9b ./venv/bin/python agent.py "soru"
 Thinking normalde kapalıdır. Yalnız kontrollü bir deneyde açmak için
 `LOCAL_CODING_AGENT_THINK=true` kullanılabilir.
 
-## Faz 2 Hedefi ve Mevcut Sınır
+## Faz 2 Altyapısı Tamamlandı
 
-Faz 2'de agent yalnızca doğru dosyayı bulmakla yetinmemeli. Güncel sonuç kaydı aşağıdaki alanları taşır:
+Faz 2'de agent yalnızca doğru dosyayı bulmakla yetinmemeliydi. Mevcut durumda altyapı olarak dosya bulma, kısıtlı okuma ve AST duvarı (hallucination önleme) tamamlanmış olsa da, modelin kaba semantik hataları (liste ile sözlük karıştırması vb.) nedeniyle tam bir "başarı" kabul edilemiyor. Güncel sonuç kaydı aşağıdaki alanları taşır:
 
 ```text
 status
