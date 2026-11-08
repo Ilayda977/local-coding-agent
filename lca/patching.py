@@ -13,9 +13,12 @@ Nothing is written until ``approve(plan, diff)`` returns True. Before writing
 we keep the original bytes, so ``rollback()`` can restore them exactly.
 """
 import ast
+import builtins
 import difflib
 import hashlib
+import keyword
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 
@@ -138,10 +141,15 @@ def patch_context(repo, diagnosis, padding=6):
         if is_test_file(ev["file"]):
             continue
         path = repo.root / ev["file"]
+        if not path.is_file():
+            continue
         lines = _read(path).splitlines()
         start, end = _enclosing_block(path, ev["start_line"], ev["end_line"])
         start, end = max(1, start - padding), min(len(lines), end + padding)
         body = "\n".join(lines[start - 1:end])
+        # The model is shown these lines now, so it may edit them later
+        # (this matters in repair rounds, after line numbers moved).
+        repo.note_read(ev["file"], start, end)
         blocks.append(f"### {ev['file']} (lines {start}-{end})\n{body}")
     return "\n\n".join(dict.fromkeys(blocks)) or "(no source evidence outside tests)"
 
@@ -170,6 +178,21 @@ def build_patch(proposal, repo, max_changed_lines):
         if not repo.was_read(rel, first_line, first_line + line_count - 1):
             raise PatchError(f"{rel}:{first_line}: those lines were never read")
         contents[rel] = updated
+
+    unknown = invented_names(proposal, repo)
+    if unknown:
+        # Point at real names that look similar: "completed" -> completed_at.
+        known = repo.known_names()
+        hints = []
+        for name in sorted(unknown):
+            close = difflib.get_close_matches(name, known, n=3, cutoff=0.6)
+            close += sorted(k for k in known if k.startswith(name) and k not in close)[:2]
+            if close:
+                hints.append(f"instead of '{name}' maybe: {', '.join(close)}")
+        raise PatchError("the new code uses names that do not exist anywhere in the repository: "
+                         + ", ".join(sorted(unknown)) + ". "
+                         + ("; ".join(hints) + ". " if hints else "")
+                         + "Use only existing fields/functions or remove that code.")
 
     changes = []
     for rel, after in contents.items():
@@ -236,6 +259,28 @@ def replace_once(content, old, new, label="file"):
             rebuilt.append(actual_indent + line.lstrip() + "\n")
     result = "".join(lines[:start] + rebuilt + lines[start + len(wanted):])
     return result, start + 1, len(wanted)
+
+
+_STRING = re.compile(r"(\"\"\"[\s\S]*?\"\"\"|'\'\'[\s\S]*?'\'\'|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')")
+_COMMENT = re.compile(r"#.*")
+_NAME = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+_PYTHON_NAMES = set(dir(builtins)) | set(keyword.kwlist) | {"self", "cls"}
+
+
+def _code_names(text):
+    text = _COMMENT.sub("", _STRING.sub('""', text))
+    return set(_NAME.findall(text))
+
+
+def invented_names(proposal, repo):
+    """Names a patch introduces that exist nowhere in the repository's code."""
+    introduced = set()
+    for edit in proposal.edits:
+        introduced |= _code_names(edit.new_text) - _code_names(edit.old_text)
+    introduced -= _PYTHON_NAMES
+    if not introduced:
+        return set()
+    return introduced - repo.known_names()
 
 
 def is_test_file(rel):

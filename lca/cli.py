@@ -58,6 +58,13 @@ def main(argv=None):
             print("\n" + _style(BOLD, "Patch rejected by the controller: ", color) + data)
         if kind == "patch_applied":
             print("\n" + _style(BOLD, "Patch applied.", color))
+        if kind == "tests":
+            mark = "PASSED" if data.passed else "FAILED"
+            print(_style(BOLD, f"run_tests: {mark}", color) + f"  {data.summary}")
+            if data.brief:
+                print(_style(DIM, "\n".join("    " + l for l in data.brief.splitlines()[:8]), color))
+        if kind == "rolled_back":
+            print(_style(BOLD, "Tests still fail after the repairs: changes rolled back.", color))
         if kind == "diagnosis_rejected":
             print("\n" + _style(BOLD, "Diagnosis rejected by the controller:", color))
             for problem in data:
@@ -116,13 +123,20 @@ def _print_summary(report, color):
         print(f"confidence (model's own guess, not a probability): {diagnosis['confidence']}")
     for problem in report.get("diagnosis_problems", []):
         print(f"! {problem}")
+    patch = report.get("patch")
+    if patch and patch.get("diff"):
+        print("\n" + _style(BOLD, "== Final diff ==", color))
+        print(_colored_diff(patch["diff"], color))
     print("\n" + _style(BOLD, "== Summary ==", color))
     print(f"status: {report['status']}  ({report.get('stop_reason', '')})")
+    if report.get("tests"):
+        print(f"tests: {'pass' if report['tests']['passed'] else 'fail'} after "
+              f"{report['tests']['repairs']} repair round(s)")
     print(f"files read: {', '.join(report['files_read']) or '-'}")
     if report.get("error"):
         print(f"error: {report['error']}")
-    print(f"model calls: {usage['model_calls']}, prompt tokens: {usage['prompt_tokens']}, "
-          f"time: {report['seconds']} s")
+    print(f"model calls: {usage['model_calls']}, prompt tokens: {usage['prompt_tokens']} "
+          f"(largest single prompt: {usage['max_prompt_tokens']}), time: {report['seconds']} s")
 
 
 if __name__ == "__main__":

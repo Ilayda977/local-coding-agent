@@ -66,6 +66,9 @@ class LLM:
 
     # ------------------------------------------------------------------
     def _call(self, messages, schema, stage, num_predict):
+        # Global step limit: a deterministic brake, independent of the model.
+        if len(self.calls) >= self.settings.max_model_calls:
+            raise LLMError(f"model call budget ({self.settings.max_model_calls}) used up")
         started = time.monotonic()
         prompt_chars = sum(len(m["content"]) for m in messages)
         pieces, prompt_tokens, output_tokens = [], 0, 0
@@ -93,14 +96,21 @@ class LLM:
         return "".join(pieces)
 
     def usage(self):
-        """Totals for the run report."""
+        """Totals for the run report (Phase 5: log how much context we send)."""
+        by_stage = {}
+        for call in self.calls:
+            stage = by_stage.setdefault(call.stage, {"calls": 0, "prompt_tokens": 0})
+            stage["calls"] += 1
+            stage["prompt_tokens"] += call.prompt_tokens
         return {
             "model_calls": len(self.calls),
             "prompt_tokens": sum(c.prompt_tokens for c in self.calls),
             "output_tokens": sum(c.output_tokens for c in self.calls),
+            # The biggest single prompt decides memory use and speed on 16 GB.
             "max_prompt_tokens": max((c.prompt_tokens for c in self.calls), default=0),
             "seconds": round(sum(c.seconds for c in self.calls), 1),
             "invalid_replies": sum(1 for c in self.calls if not c.ok),
+            "by_stage": by_stage,
             "calls": [asdict(c) for c in self.calls],
         }
 

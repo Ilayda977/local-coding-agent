@@ -28,8 +28,13 @@ class Settings:
 
     # Patch + test loop (Phase 3/4)
     max_changed_lines: int = 40
-    max_repairs: int = 2
+    max_repairs: int = 2            # assignment: at most two repair rounds
     test_timeout: int = 60
+    rollback_on_failure: bool = True  # tests still red after repairs -> restore files
+    reproduce_first: bool = False   # run the tests before research and show failures
+
+    # Global brake: no run may use more model calls than this, whatever happens.
+    max_model_calls: int = 40
 
     # Phase 5: replace old observations with one-line summaries
     compact_history: bool = True

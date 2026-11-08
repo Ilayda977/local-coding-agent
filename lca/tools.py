@@ -246,6 +246,10 @@ class Repo:
                 seen.update(range(record.start, record.end + 1))
         return all(n in seen for n in range(start, end + 1))
 
+    def note_read(self, path, start, end):
+        """Record lines the controller showed the model outside read_file."""
+        self.reads.append(ReadRecord(path, start, end))
+
     def read_files(self):
         """Files the agent has actually opened, in first-read order."""
         return list(dict.fromkeys(record.path for record in self.reads))
@@ -277,6 +281,36 @@ class Repo:
         if len(text) > max_chars:
             text = text[:max_chars] + "\n[... more code was read but is cut here]"
         return text
+
+    def known_names(self):
+        """Every name used in the repository's Python *code* (not strings/comments).
+
+        Variables, attributes, functions, classes, arguments, imports. Used to
+        catch patches that invent things like ``task.completed`` when the real
+        field is ``task.completed_at``.
+        """
+        names = set()
+        for file in self._iter_files(self.root):
+            if file.suffix != ".py":
+                continue
+            try:
+                tree = ast.parse(file.read_text(encoding="utf-8"))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name):
+                    names.add(node.id)
+                elif isinstance(node, ast.Attribute):
+                    names.add(node.attr)
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    names.add(node.name)
+                elif isinstance(node, ast.arg):
+                    names.add(node.arg)
+                elif isinstance(node, ast.keyword) and node.arg:
+                    names.add(node.arg)
+                elif isinstance(node, ast.alias):
+                    names.add((node.asname or node.name).split(".")[0])
+        return names
 
     def contains_identifier(self, name):
         """Does ``name`` appear as a whole word anywhere in the repository's code?
