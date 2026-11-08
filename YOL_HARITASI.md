@@ -224,3 +224,4 @@ desteği ve aynı döngüyle "bu repoyu özetle" modu. Ayrı bir pipeline değil
 | 3 – Agent döngüsü | 7B: doğru dosyayı okuma **5/5** (kriter ≥4/5 ✅) | `step3_research_7b.md` |
 | 4 – Diagnosis | 7B, tam sohbet geçmişiyle **1/5**; durum özetiyle (compact) **3/5**. Kriter ≥4/5 ❌ (dürüst kayıt) | `step4_diagnosis_7b.md`, `step4_state_7b.md` |
 | 5 – Plan + patch | 7B: sözdizimi geçerli ve uygulanmış patch **5/5** (kriter ≥3 ✅); onarımsız testler 2/5 | `step5_patch_7b.md` |
+| 6 – Test + onarım | Sonsuz döngü yok (tüm döngüler sınırlı + 40 çağrı freni) ✅; 3 issue'da test geri bildirimiyle onarım denendi ✅. İki ölçümde testler 3/5 ve 2/5 geçti (model değişkenliği). Uydurma ad koruması `task.completed`'ı 4 kez engelledi | `step6_repair_7b.md`, `step6_easy04_hint.md` |

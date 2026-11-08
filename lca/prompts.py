@@ -92,6 +92,22 @@ def patch_task(issue, diagnosis, code, feedback=None):
     return text + "\n\nPropose the fix."
 
 
+def repair_feedback(diff, test_brief):
+    return ("Your patch was applied, but tests still fail.\n"
+            f"Patch so far:\n{diff}\n"
+            f"Test failures (file:line: error):\n{test_brief}\n"
+            "The code shown above is the CURRENT code, including your patch. "
+            "Read the error lines carefully. If your patch caused an error (for example a "
+            "missing attribute), remove or replace that part. "
+            "Propose a new edit on the current code that makes the tests pass. "
+            "Use only names that exist in the code.")
+
+
+def reproduction_note(test_brief):
+    return ("Test run BEFORE any change (these failures reproduce the bug):\n"
+            f"{test_brief}")
+
+
 def diagnosis_feedback(problems):
     lines = "\n".join(f"- {p}" for p in problems)
     return ("Your diagnosis was rejected by the controller:\n" + lines +

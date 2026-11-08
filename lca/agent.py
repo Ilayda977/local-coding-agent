@@ -9,14 +9,15 @@ Status values a report can end with:
   insufficient_evidence  the agent could not back its explanation with code it read
   patch_unavailable      no valid patch after the allowed attempts
   patch_not_approved     a valid patch was shown, but the human said no
-  patched                the approved patch was applied
+  fixed                  patch applied and the whole test suite passes
+  tests_failed           tests still fail after the allowed repairs (files rolled back)
   model_error            the model kept producing invalid output / was unreachable
 """
 import time
 from pathlib import Path
 
 from lca import diagnosis as diag
-from lca import patching, prompts
+from lca import patching, prompts, testing
 from lca.llm import LLM, LLMError
 from lca.research import run_research
 from lca.tools import Repo
@@ -43,7 +44,15 @@ def run(issue, repo_path, settings, *, llm=None, on_step=None, on_token=None,
               "status": "started", "steps": [], "rejected_evidence": 0}
     research = None
     try:
-        research = run_research(issue, repo, llm, settings, on_step=on_step)
+        reproduction = None
+        if settings.reproduce_first:
+            # Like a developer: run the tests first and look at what fails.
+            baseline = testing.run_tests(repo, timeout=settings.test_timeout)
+            report["tests_before"] = baseline.as_dict()
+            if not baseline.passed:
+                reproduction = prompts.reproduction_note(baseline.brief)
+        research = run_research(issue, repo, llm, settings, on_step=on_step,
+                                extra=reproduction)
         result, problems = _diagnose(issue, repo, llm, settings, research, report, notify,
                                      on_step)
         report["stop_reason"] = research.stop_reason
@@ -104,7 +113,13 @@ def _make_patch(issue, repo, llm, settings, diagnosis, notify, feedback=None, st
     return None, rejected
 
 
+def _approved(patch, auto_approve, approve):
+    """Human in the loop: nothing is written without a yes (or an explicit --yes)."""
+    return auto_approve or (approve is not None and approve(patch.plan, patch.diff()))
+
+
 def _fix(issue, repo, llm, settings, report, notify, auto_approve, approve):
+    """plan -> approval -> patch -> run_tests -> (repair, at most max_repairs times)."""
     diagnosis = report["diagnosis"]
     patch, rejected = _make_patch(issue, repo, llm, settings, diagnosis, notify)
     report["patch"] = {"rejected": len(rejected), "rejections": rejected, "applied": False}
@@ -113,11 +128,57 @@ def _fix(issue, repo, llm, settings, report, notify, auto_approve, approve):
         return
     report["patch"].update(plan=patch.plan, diff=patch.diff(),
                            changed_lines=patch.changed_lines())
-    # Human in the loop: nothing is written without a yes.
-    if not (auto_approve or (approve is not None and approve(patch.plan, patch.diff()))):
+    if not _approved(patch, auto_approve, approve):
         report["status"] = "patch_not_approved"
         return
     patch.apply()
+    applied = [patch]
     report["patch"]["applied"] = True
-    report["status"] = "patched"
     notify("patch_applied", patch.diff())
+
+    # Phase 4: let the environment judge the patch, not the model.
+    runs = [testing.run_tests(repo, timeout=settings.test_timeout)]
+    notify("tests", runs[-1])
+    repairs = 0
+    while not runs[-1].passed and repairs < settings.max_repairs:
+        repairs += 1
+        feedback = prompts.repair_feedback(_combined_diff(applied), runs[-1].brief)
+        repair, rejected = _make_patch(issue, repo, llm, settings, diagnosis, notify,
+                                       feedback=feedback, stage="repair")
+        report["patch"]["rejected"] += len(rejected)
+        report["patch"]["rejections"] += rejected
+        if repair is None or not _approved(repair, auto_approve, approve):
+            break  # no usable repair: stop cleanly instead of looping
+        repair.apply()
+        applied.append(repair)
+        notify("patch_applied", repair.diff())
+        runs.append(testing.run_tests(repo, timeout=settings.test_timeout))
+        notify("tests", runs[-1])
+
+    report["patch"]["diff"] = _combined_diff(applied)
+    report["patch"]["changed_lines"] = sum(p.changed_lines() for p in applied)
+    report["patch"]["plans"] = [p.plan for p in applied]
+    report["tests"] = {"passed": runs[-1].passed, "repairs": repairs,
+                       "runs": [run.as_dict() for run in runs]}
+    if runs[-1].passed:
+        report["status"] = "fixed"
+        return
+    # Clean stop: tests are still red after the allowed repairs.
+    report["status"] = "tests_failed"
+    if settings.rollback_on_failure:
+        for done in reversed(applied):
+            done.rollback()
+        report["patch"]["rolled_back"] = True
+        notify("rolled_back", None)
+
+
+def _combined_diff(patches):
+    """One diff from the original files to the current state, across all patches."""
+    first_before, last_after = {}, {}
+    for patch in patches:
+        for change in patch.changes:
+            first_before.setdefault(change.path, change.before)
+            last_after[change.path] = change.after
+    combined = patching.PatchSet(None, "", [patching.FileChange(path, first_before[path], after)
+                                            for path, after in last_after.items()])
+    return combined.diff()

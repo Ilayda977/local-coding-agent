@@ -1,0 +1,213 @@
+{
+  "name": "step6_easy04_hint",
+  "settings": {
+    "model": "qwen2.5-coder:7b",
+    "host": "http://127.0.0.1:11434",
+    "num_ctx": 8192,
+    "temperature": 0.0,
+    "max_steps": 12,
+    "max_read_lines": 80,
+    "min_read_lines": 20,
+    "max_search_results": 30,
+    "max_observation_chars": 4000,
+    "max_evidence_retries": 1,
+    "max_changed_lines": 40,
+    "max_repairs": 2,
+    "test_timeout": 60,
+    "rollback_on_failure": true,
+    "reproduce_first": false,
+    "max_model_calls": 40,
+    "compact_history": true,
+    "keep_recent_observations": 3,
+    "request_timeout": 180
+  },
+  "results": [
+    {
+      "issue": "easy_04",
+      "difficulty": "easy",
+      "title": "Tamamlanmış görevler gecikmiş listesinde görünüyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": true,
+        "valid_patch": false,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 5,
+        "prompt_tokens": 8905,
+        "seconds": 69.4,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "Tasks that are already DONE still show up in the project's overdue task list if their due date has passed. Completed tasks should never be reported as overdue.",
+        "model": "qwen2.5-coder:7b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_04",
+        "status": "patch_unavailable",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function responsible for marking tasks as overdue.",
+            "call": "find_symbol(name='is_overdue')",
+            "observation": "Definitions of 'is_overdue':\ntasks/service.py:96-100  def TaskService.is_overdue\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that checks if a task is overdue.",
+            "call": "read_file(path='tasks/service.py', start_line=96, end_line=100)",
+            "observation": "tasks/service.py lines 89-108 of 113:\n 89 |         task.completed_at = None\n 90 |         self._touch(task)\n 91 |         self._bus.publish(events.TASK_STATUS_CHANGED, task_id=task.id,\n 92 |                           old_status=old_status, new_status=task.status, actor_id=actor_id)\n 93 |         return task\n 94 | \n 95 |     # -- queries -----------------------------------------------------------\n 96 |     def is_overdue(self, task, today=None):\n 97 |         \"\"\"A task is overdue when its due date has passed and it is not done.\"\"\"\n 98 |         today = today or self._clock.now().date()\n 99 |         return (task.due_date is not None\n100 |                 and task.due_date < today)\n101 | \n102 |     def overdue_tasks(self, project_id, user_id):\n103 |         self._projects.get_for_user(project_id, user_id)\n104 |         return [task for task in self._tasks.list(lambda t: t.project_id == project_id)\n105 |                 if self.is_overdue(task)]\n106 | \n107 |     def search(self, project_id, user_id, task_filter=None, sort_by=\"priority\",\n108 |                page=1, per_page=20):\n[widened from 96-100 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check where the `is_overdue` method is called.",
+            "call": "search_code(query='is_overdue')",
+            "observation": "3 matches for 'is_overdue':\ntasks/service.py:96 (in TaskService.is_overdue): def is_overdue(self, task, today=None):\ntasks/service.py:105 (in TaskService.overdue_tasks): if self.is_overdue(task)]\ntests/test_tasks.py:50 (in test_task_due_today_is_not_overdue): assert not app.tasks.is_overdue(task)",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Check the logic that determines if a task is overdue.",
+            "call": "read_file(path='tasks/service.py', start_line=96, end_line=100)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 5,
+            "thought": "Check the logic that determines if a task is overdue.",
+            "call": "read_file(path='tasks/service.py', start_line=96, end_line=100)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that tasks that are already DONE still show up in the project's overdue task list if their due date has passed. Completed tasks should never be reported as overdue. The actual behavior differs from the expected one because the `is_overdue` method does not check if the task is completed. The `overdue_tasks` method filters tasks based on the `is_overdue` method, which does not exclude completed tasks.",
+          "issue_summary": "Completed tasks are incorrectly reported as overdue in the project's overdue task list.",
+          "root_cause": "The `is_overdue` method does not check if the task is completed. The `overdue_tasks` method filters tasks based on the `is_overdue` method, which does not exclude completed tasks.",
+          "relevant_files": [
+            "tasks/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "tasks/service.py",
+              "start_line": 97,
+              "end_line": 101,
+              "why": "The `is_overdue` method does not check if the task is completed.",
+              "code": "97 |         \"\"\"A task is overdue when its due date has passed and it is not done.\"\"\"\n98 |         today = today or self._clock.now().date()\n99 |         return (task.due_date is not None\n100 |                 and task.due_date < today)\n101 | "
+            },
+            {
+              "file": "tasks/service.py",
+              "start_line": 102,
+              "end_line": 105,
+              "why": "The `overdue_tasks` method filters tasks based on the `is_overdue` method, which does not exclude completed tasks.",
+              "code": "102 |     def overdue_tasks(self, project_id, user_id):\n103 |         self._projects.get_for_user(project_id, user_id)\n104 |         return [task for task in self._tasks.list(lambda t: t.project_id == project_id)\n105 |                 if self.is_overdue(task)]"
+            }
+          ],
+          "confidence": "high"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "the new code uses names that do not exist anywhere in the repository: completed. instead of 'completed' maybe: completed_at, compile. Use only existing fields/functions or remove that code.",
+            "the new code uses names that do not exist anywhere in the repository: completed. instead of 'completed' maybe: completed_at, compile. Use only existing fields/functions or remove that code."
+          ],
+          "applied": false
+        },
+        "files_read": [
+          "tasks/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 8,
+          "prompt_tokens": 8905,
+          "output_tokens": 762,
+          "max_prompt_tokens": 1627,
+          "seconds": 69.2,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 5,
+              "prompt_tokens": 6796
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 689
+            },
+            "patch": {
+              "calls": 2,
+              "prompt_tokens": 1420
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 4372,
+              "prompt_tokens": 1035,
+              "output_tokens": 33,
+              "seconds": 4.81,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 4733,
+              "prompt_tokens": 1133,
+              "output_tokens": 51,
+              "seconds": 4.36,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5817,
+              "prompt_tokens": 1439,
+              "output_tokens": 44,
+              "seconds": 5.84,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6504,
+              "prompt_tokens": 1627,
+              "output_tokens": 51,
+              "seconds": 7.18,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6243,
+              "prompt_tokens": 1562,
+              "output_tokens": 51,
+              "seconds": 5.87,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 2744,
+              "prompt_tokens": 689,
+              "output_tokens": 309,
+              "seconds": 22.59,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2854,
+              "prompt_tokens": 681,
+              "output_tokens": 110,
+              "seconds": 8.63,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 3150,
+              "prompt_tokens": 739,
+              "output_tokens": 113,
+              "seconds": 9.9,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 69.4
+      }
+    }
+  ]
+}

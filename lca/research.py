@@ -100,23 +100,27 @@ def _already_read(repo, action):
     return repo.was_read(args["path"], args["start_line"], args["end_line"])
 
 
-def start_research(issue, repo):
-    """The opening conversation: rules + bug report + repository map."""
-    return Research(messages=[
+def start_research(issue, repo, extra=None):
+    """The opening conversation: rules + bug report + repository map (+ test output)."""
+    task = prompts.research_task(issue, repo.repo_map())
+    research = Research(messages=[
         {"role": "system", "content": prompts.RESEARCH_SYSTEM},
-        {"role": "user", "content": prompts.research_task(issue, repo.repo_map())},
+        {"role": "user", "content": task + (f"\n\n{extra}" if extra else "")},
     ])
+    if extra:
+        research.notes.append(extra)
+    return research
 
 
 def run_research(issue, repo, llm, settings, on_step=None,
-                 research=None, feedback=None, max_steps=None):
+                 research=None, feedback=None, max_steps=None, extra=None):
     """Let the model explore until it calls finish or runs out of steps.
 
     Called a second time with ``research`` + ``feedback`` it *continues* the same
     investigation; that is how a rejected diagnosis sends the agent back to read more.
     """
     if research is None:
-        research = start_research(issue, repo)
+        research = start_research(issue, repo, extra)
     messages = research.messages
     if feedback:
         messages.append({"role": "user", "content": feedback})

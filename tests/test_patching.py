@@ -193,3 +193,21 @@ def test_rejected_patch_gets_one_more_try(taskflow_copy, settings):
                        auto_approve=True)
     assert report["patch"]["applied"] and report["patch"]["rejected"] == 1
     assert "previous patch was rejected" in client.requests[-1]["messages"][-1]["content"]
+
+
+def test_invented_attributes_are_rejected(buggy):
+    invented = OLD.replace("< today)", "< today\n                and not task.completed)")
+    with pytest.raises(PatchError, match="completed") as error:
+        build_patch(proposal(("tasks/service.py", OLD, invented)), buggy, 40)
+    assert "maybe: " in str(error.value) and "completed_at" in str(error.value)
+
+
+def test_names_in_strings_comments_and_builtins_are_fine(buggy):
+    new = OVERDUE_FIXED.replace("today)", "today)  # see isinstance and 'whatever text'")
+    assert build_patch(proposal(("tasks/service.py", OLD, new)), buggy, 40)
+
+
+def test_known_names_come_from_code_not_strings(repo):
+    names = repo.known_names()
+    assert {"completed_at", "is_overdue", "Status", "DONE"} <= names
+    assert "completed" not in names  # only appears inside a string in dispatcher.py
