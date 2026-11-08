@@ -87,7 +87,8 @@ local-coding-agent/
 ## 3. Bir issue'nun yolculuğu (gerçek bir çalıştırma)
 
 Issue `easy_05`: *"Bir bildirimi okundu işaretledikten sonra okunmamış
-sayısı azalmıyor."* Gerçek 7B çalıştırmasından (eval/results/step6_repair_7b.json):
+sayısı azalmıyor."* Aşağıdakiler gerçek 7B çalıştırmasının kaydı
+(`eval/results/final_7b.json`):
 
 1. `eval/issues.py prepare easy_05` temiz `taskflow/`'u `eval/workspace/easy_05`'e
    kopyalar ve `notifications/service.py` içindeki
@@ -95,17 +96,19 @@ sayısı azalmıyor."* Gerçek 7B çalıştırmasından (eval/results/step6_repa
    `return self.for_user(user_id)` yapar (bug'ı enjekte eder).
 2. Model ilk mesajda bug raporunu ve **repo haritasını** görür
    (`notifications/service.py: class NotificationService(notify, for_user, unread, unread_count, mark_read, …)`).
-3. `find_symbol(name='mark_read')` → konum. `read_file(...)` → kod. Model
-   `unread_count`'u da bulur, okur.
-4. Diagnosis: *"The `unread` method does not filter out read notifications…"*;
-   kanıt `notifications/service.py:35-37`. Controller bu satırların gerçekten
-   okunduğunu doğrular ve satırların gerçek metnini diskten kopyalar.
+3. Araştırma (5 adım): `find_symbol('mark_read')` → `read_file(42-47)` →
+   `search_code('unread')` → `read_file(35-47)` → aynı satırları tekrar okumak
+   istedi; controller bunu "tekrar" saydı ve araştırma bitti.
+4. Diagnosis: *"The `unread` method does not filter out read notifications,
+   causing the `unread_count` method to include read notifications in the count."*
+   Kanıt `notifications/service.py:35-37` ve `40-42`. Controller bu satırların
+   gerçekten okunduğunu doğruladı ve satırların gerçek metnini diskten kopyaladı.
 5. Patch önerisi: `return self.for_user(user_id)` →
    `return [n for n in self.for_user(user_id) if not n.read]`. Controller:
    dosya okunmuş ✓, test dosyası değil ✓, tek yerde geçiyor ✓, 1 satır ✓,
-   `ast.parse` ✓, yeni isimlerin hepsi repoda var ✓.
-6. Onay (değerlendirmede otomatik, CLI'da sen "yes" yazarsın) → atomik yazma.
-7. `run_tests` → 72 test geçti → durum `fixed`.
+   `ast.parse` ✓, yeni adların hepsi repoda var ✓.
+6. Onay (değerlendirmede otomatik, CLI'da sen `yes` yazarsın) → atomik yazma.
+7. `run_tests` → `72 passed` → durum `fixed`. Onarım gerekmedi.
 
 ---
 
@@ -352,13 +355,162 @@ düşer…) ki orta/zor bug'lar birden fazla dosya gerektirsin.
 
 ## 6. Ölçümler
 
-SONUÇLAR_BURAYA
+Bütün sayılar `eval/results/` altındaki JSON dosyalarından, `eval/summarize.py`
+ile üretildi. Her issue temiz bir kopyada çalıştı; testleri **değerlendirici**
+çalıştırdı. Bir uyarı: aynı ayarlarla bile 7B her çalıştırmada biraz farklı
+yollar seçebiliyor. Bu yüzden 5 issue'luk ölçümlerde ±1 oynama normal.
+
+### 6.1 Final: 15 issue, 7B (`final_7b`)
+
+| zorluk | n | retrieval | diagnosis | geçerli patch | testler geçti | otonom | ort. toplam token | ort. en büyük prompt | ort. süre |
+|---|---|---|---|---|---|---|---|---|---|
+| easy | 5 | 5/5 | 4/5 | 4/5 | 2/5 | 2/5 | 13 001 | 2 042 | 127 sn |
+| medium | 5 | 4/5 | 2/5 | 5/5 | 2/5 | 2/5 | 17 277 | 2 125 | 140 sn |
+| hard | 5 | 4/5 | 2/5 | 3/5 | 1/5 | 1/5 | 15 267 | 2 147 | 156 sn |
+| **hepsi** | 15 | **13/15** | **8/15** | **12/15** | **5/15** | **5/15** | 15 182 | 2 104 | 141 sn |
+
+Çözülenler: easy_02, easy_05, medium_02, medium_05, hard_05.
+
+### 6.2 Model boyutu: 3B (`final_3b`)
+
+| zorluk | retrieval | diagnosis | geçerli patch | otonom | ort. süre |
+|---|---|---|---|---|---|
+| easy | 4/5 | 3/5 | 3/5 | 1/5 | 47 sn |
+| medium | 2/5 | 0/5 | 2/5 | 0/5 | 53 sn |
+| hard | 3/5 | 1/5 | 2/5 | 0/5 | 39 sn |
+| **hepsi** | 9/15 | 4/15 | 7/15 | **1/15** | **46 sn** |
+
+3B yaklaşık **3 kat hızlı**, ama 15 issue'nun 6'sında bug'lı dosyayı hiç
+okumadı (7B'de bu 2). Yani 3B, controller ve araç geliştirirken hızlı deneme
+için iyi; asıl iş için 7B gerekli. Bu, MODEL_BASELINE.md'deki "7B ana model"
+kararını ölçümle doğruluyor.
+
+### 6.3 Context optimizasyonu (Faz 5): aynı 5 kolay issue
+
+| | tam sohbet (`step7_chat_7b`) | durum özeti (`final_7b`, kolaylar) |
+|---|---|---|
+| diagnosis | 1/5 | **4/5** |
+| otonom çözüm | 1/5 | **2/5** |
+| araştırmada en büyük tek prompt | 3 103 token | **2 456** (−21%) |
+| çağrı başına ort. prompt | 1 786 | 1 697 |
+| issue başına toplam token | 12 709 | 13 001 (≈ aynı) |
+| çağrı başına süre | **6.2 sn** | 8.7 sn |
+
+Durum özeti daha küçük bir pencereyle **daha doğru** çalışıyor. Bedeli
+hızda: tam sohbet modunda Ollama bir önceki prompt'un önbelleğini (KV cache)
+kullanabiliyor, durum özetinde her prompt yeni olduğu için kullanamıyor.
+Kabul kriteri ("daha az context, başarı düşmeden") sağlandı; "hız hissi"
+biraz kötüleşti. Bunu saklamıyoruz.
+
+### 6.4 Adım adım ilerleme (aynı 5 kolay issue, 7B)
+
+| Adım | Ne eklendi | Sonuç |
+|---|---|---|
+| 3 | agent loop + repo haritası | doğru dosyayı okuma 5/5 |
+| 4 | diagnosis, tam sohbet | diagnosis 1/5 |
+| 4 | + temiz bağlam + durum özeti + `analysis` alanı | diagnosis 3/5 |
+| 5 | onaylı patch | geçerli patch 5/5, onarımsız testler 2/5 |
+| 6 | test + 2 onarım | testler 3/5 ve 2/5 (iki ölçüm) |
+| 8 | final ölçüm | diagnosis 4/5, otonom 2/5 |
+
+### 6.5 Güvenlik ve sınırlar (final ölçümlerde ne engellendi?)
+
+| | 7B | 3B |
+|---|---|---|
+| Repo dışı yol denemesi | 0 | 0 |
+| Bozuk JSON cevap | 0 | 0 |
+| Okunmamış satırı kanıt gösterme (reddedildi) | 0 | 2 |
+| Reddedilen patch önerisi (toplam) | 16 | 26 |
+|   ↳ repoda olmayan ad uydurma | 4 | 7 |
+|   ↳ sözdizimi bozuk | 2 | 1 |
+| Testler geçmeyince geri alınan (rollback) | 7 | 6 |
+| Bir issue'daki en fazla model çağrısı | 17 (sınır 40) | 14 |
+
+JSON şemalı çıktı sayesinde 297 model çağrısında **tek bir bozuk JSON**
+yok. Reddedilen 42 patch'in hiçbiri diske yazılmadı. Testi geçmeyen her patch
+geri alındı, yani başarısız bir çalıştırma repoyu bozuk bırakmadı.
 
 ---
 
 ## 7. Başarısızlık analizi
 
-HATALAR_BURAYA
+`eval/summarize.py` her başarısız issue'yu **ilk kırıldığı aşamaya** göre
+sınıflandırıyor (yanlış diagnosis'ten sonra gelen yanlış patch, patch sorunu
+değil diagnosis sorunudur):
+
+| Sınıf | Anlamı | 7B | 3B |
+|---|---|---|---|
+| F0 | Model çıktısı kullanılamaz / bütçe bitti | 0 | 0 |
+| F1 | Bug'lı dosyayı hiç okumadı (localization) | 2 | 6 |
+| F2 | Okumadığı kodu kanıt gösterdi | 0 | 0 |
+| F3 | Doğru kodu okudu, yanlış yorumladı (misdiagnosis) | 5 | 5 |
+| F4 | Kontrolden geçen patch üretemedi | 2 | 2 |
+| F5 | Patch uygulandı, onarımlara rağmen testler kaldı | 1 | 1 |
+
+**En büyük sorun bulmak değil, anlamak:** 7B dosyayı %87 oranında buluyor,
+ama doğru okuduğu kodu yanlış açıklıyor (F3).
+
+### 7.1 easy_01: "Kullanılmayan şey" bug'ı (F3)
+
+- **Bug:** `normalize_email`, `EMAIL_PATTERN.match(...)` yerine yalnızca
+  `"@" in email` kontrol ediyor. Regex tanımlı ama hiç kullanılmıyor.
+- **Agent ne yaptı:** `register` → `common/validation.py`'deki `EMAIL_PATTERN`
+  satırını okudu, regex'i suçladı ve regex'i değiştiren bir patch yazdı. Testler
+  kaldı. Onarım önerilerinin ikisi de controller'dan geçemedi: biri hiçbir şeyi
+  değiştirmiyordu, diğeri repoda olmayan `IGNORECASE` adını kullanıyordu.
+  Sonunda değişiklik geri alındı (rollback).
+- **Neden:** Bug bir şeyin **eksikliği** (regex'in kullanılmaması). Model hep
+  "yanlış yazılmış kodu" arıyor; regex doğru göründüğü halde onu "düzeltti".
+  `read_file` ipucu "EMAIL_PATTERN başka yerde kullanılıyor mu?" sorusuna
+  yalnızca kullanım varsa cevap veriyor; **hiç kullanılmadığını** söylemiyor.
+- **Ders / sonraki adım:** Araç "bu sabit dosyada hiç kullanılmıyor" diye
+  açıkça yazmalı. Yokluk sinyali küçük modeller için çok değerli.
+
+### 7.2 easy_04: Uydurma alan (F4)
+
+- **Bug:** `is_overdue` içinde `task.status != Status.DONE` koşulu silinmiş.
+- **Agent ne yaptı:** Diagnosis **doğruydu** ("tamamlanmış görevi kontrol
+  etmiyor"). Ama her patch'te `task.completed` yazdı. Böyle bir alan yok,
+  gerçek alanlar `status` ve `completed_at`. Controller bunu her seferinde
+  reddetti, bir keresinde "belki: completed_at" önerisiyle. Model önerileri
+  görmezden geldi.
+- **Neden:** Model `Task` dataclass'ını hiç okumadı; kendi kök neden cümlesindeki
+  "completed" kelimesini koda çevirdi.
+- **İyi taraf:** Uydurma kod **diske hiç ulaşmadı**; bu tam olarak
+  halüsinasyon kontrolünün amacı.
+- **Sonraki adım:** Patch bağlamına, kanıtta geçen nesnenin modelini
+  (`Task` alanlarını) otomatik eklemek.
+
+### 7.3 hard_04: Sıralama (ordering) hatası (F3 → zararlı patch → rollback)
+
+- **Bug:** `TaskService.assign` olayı (`TASK_ASSIGNED`), `task.assignee_id`'yi
+  güncellemeden **önce** yayınlıyor; bildirim eski atanana gidiyor.
+- **Agent ne yaptı:** `assign` → `notify` → `dispatcher.on_task_assigned` zincirini
+  doğru izledi (3 modül!), ama suçu dispatcher'daki koşula attı ve koşulu
+  tersine çevirdi. Bu 4 testi daha kırdı. Onarım önerileri controller'dan
+  geçemedi (biri hiçbir şeyi değiştirmiyordu, biri koddaki metni yanlış
+  kopyalamıştı), bu yüzden değişiklik geri alındı.
+- **Neden:** "Önce yayınla, sonra ata" gibi **zamana bağlı** bir ilişkiyi
+  görmek, 7B için zor: iki satırın **sırası** hatalı, satırların kendisi değil.
+- **İyi taraf:** Test geri bildirimi patch'in zararlı olduğunu gösterdi,
+  rollback repoyu kurtardı.
+
+### 7.4 medium_01 ve 3B'nin genel sorunu: yanlış yerde kalmak (F1)
+
+- medium_01'de bug `users/service.py` içindeki `normalize_handle`'da
+  (`.lower()` silinmiş). Agent belirtinin olduğu `comments/` modülünde kaldı,
+  `mentioned.append(handle.lower())` gibi bir patch yazdı (kimlik yerine handle
+  saklamak). Bu 6 testi kırdı, onarımlar da tutmadı, rollback yapıldı.
+- 3B bu türden "belirti burada, sebep orada" issue'larının çoğunda doğru
+  dosyaya hiç gitmedi (F1: 6/15).
+
+### 7.5 Değişkenlik (variance)
+
+Aynı issue farklı çalıştırmalarda farklı sonuç verebiliyor. easy_03 Adım 6
+ölçümlerinde iki kez çözüldü, finalde çözülemedi. easy_02 ise tersine.
+`temperature=0` olsa bile prompt'taki küçük farklar modelin yolunu
+değiştiriyor. Bu yüzden tek bir çalıştırmaya bakıp "%40 başarılı" demek
+yerine sonuçları her zaman küçük örneklem uyarısıyla okumak gerekiyor.
 
 ---
 
@@ -381,7 +533,8 @@ HATALAR_BURAYA
 
 - **"Neden bütün repoyu prompt'a koymadın?"** 8K context'e sığmaz; sığsa
   bile 7B ilgisiz kodda kayboluyor. Repo haritası + arama + satır aralığı
-  okuma ile ortalama ~10 bin token'lık **toplam** maliyetle çalışıyor.
+  okuma ile issue başına ortalama ~15 bin token'lık **toplam** maliyetle,
+  en büyük tek prompt ~2 bin token olacak şekilde çalışıyor.
 - **"Model yanlış dosya yolu verirse?"** `Repo.resolve` reddeder, gözlem
   olarak hatayı geri verir, `blocked` metriğine yazılır.
 - **"Model 'onaylandı' yazarsa dosya değişir mi?"** Hayır. Onay yalnız

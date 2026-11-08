@@ -226,3 +226,26 @@ desteği ve aynı döngüyle "bu repoyu özetle" modu. Ayrı bir pipeline değil
 | 5 – Plan + patch | 7B: sözdizimi geçerli ve uygulanmış patch **5/5** (kriter ≥3 ✅); onarımsız testler 2/5 | `step5_patch_7b.md` |
 | 6 – Test + onarım | Sonsuz döngü yok (tüm döngüler sınırlı + 40 çağrı freni) ✅; 3 issue'da test geri bildirimiyle onarım denendi ✅. İki ölçümde testler 3/5 ve 2/5 geçti (model değişkenliği). Uydurma ad koruması `task.completed`'ı 4 kez engelledi | `step6_repair_7b.md`, `step6_easy04_hint.md` |
 | 7 – Context | 5 kolay issue, aynı kod: tam sohbet → durum özeti. Diagnosis 1/5 → 4/5, otonom 1/5 → 2/5, en büyük araştırma prompt'u 3103 → 2456 token (−21%), toplam token ≈ aynı (12.7k → 13.0k). Bedeli: çağrı başına 6.2 → 8.7 sn (KV cache yeniden kullanılamıyor). Kriter: daha az context + başarı düşmedi ✅; hız biraz kötüleşti (dürüst kayıt) | `step7_chat_7b.md`, `final_7b.md` |
+| 8 – Final | 15 issue (5/5/5). 7B: retrieval 13/15, diagnosis 8/15, geçerli patch 12/15, **otonom 5/15** (kolay 2, orta 2, zor 1), ~141 sn/issue. 3B: otonom 1/15, ~46 sn/issue. Failure taxonomy ve 4 ayrıntılı vaka OGRENME_REHBERI.md §7'de | `final_7b.md`, `final_3b.md` |
+
+### Son durum (8 Kasım 2026)
+
+Bütün fazların mekanizmaları kuruldu ve modelsiz testlerle doğrulandı. Kabul
+kriterleri ölçümle kontrol edildi:
+
+| Faz | Kriter | Durum |
+| --- | --- | --- |
+| 1 | 5 kolay issue'nun ≥4'ünde ilgili dosya | ✅ 5/5 |
+| 1 | Repo dışı yol reddi, bütün repo context'e yüklenmez | ✅ testli |
+| 2 | 5 kolay issue'da ≥4 doğru diagnosis | ⚠️ final ölçümde 4/5, önceki ölçümlerde 3/5 (değişken) |
+| 2 | Var olmayan dosya/fonksiyon referansı kabul edilmez | ✅ controller kontrolü, testli |
+| 3 | Onaysız yazma yok, patch repo dışına çıkamaz | ✅ testli |
+| 3 | ≥3 kolay bug için geçerli patch | ✅ 4/5 (Adım 5'te 5/5) |
+| 4 | Sonsuz döngü yok | ✅ her döngü sınırlı + 40 çağrı freni |
+| 4 | ≥3 kolay issue'da test geri bildirimiyle çözüm denendi | ✅ |
+| 5 | Daha az context, başarı düşmeden | ✅ en büyük prompt −21%, diagnosis 1/5 → 4/5; hız −%40 (not edildi) |
+| 6 | Tekrar üretilebilir sonuçlar, gizlenmeyen hatalar | ✅ `eval/run_eval.py`, failure taxonomy |
+
+Açık kalan iyileştirme fikirleri (bkz. rehber §7): "hiç kullanılmıyor"
+sinyali, patch bağlamına ilgili modelin alanlarını eklemek, repair turunda
+eski `old_text` kopyalama hatası, taskflow'u 2.000+ satıra büyütmek.

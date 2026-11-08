@@ -1,0 +1,3173 @@
+{
+  "name": "final_3b",
+  "settings": {
+    "model": "qwen2.5-coder:3b",
+    "host": "http://127.0.0.1:11434",
+    "num_ctx": 8192,
+    "temperature": 0.0,
+    "max_steps": 12,
+    "max_read_lines": 80,
+    "min_read_lines": 20,
+    "max_search_results": 30,
+    "max_observation_chars": 4000,
+    "max_evidence_retries": 1,
+    "max_changed_lines": 40,
+    "max_repairs": 2,
+    "test_timeout": 60,
+    "rollback_on_failure": true,
+    "reproduce_first": false,
+    "max_model_calls": 40,
+    "compact_history": true,
+    "keep_recent_observations": 3,
+    "request_timeout": 180
+  },
+  "results": [
+    {
+      "issue": "easy_01",
+      "difficulty": "easy",
+      "title": "Geçersiz e-posta adresiyle kayıt olunabiliyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": false,
+        "valid_patch": false,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 5,
+        "prompt_tokens": 9738,
+        "seconds": 40.1,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "Users can register with clearly invalid email addresses such as `ali@` or `ali@example`. Registration should be rejected with a ValidationError when the address has no domain or no top-level domain.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_01",
+        "status": "patch_unavailable",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the registration logic.",
+            "call": "find_symbol(name='register')",
+            "observation": "Definitions of 'register':\nusers/service.py:22-34  def UserService.register\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the UserService.register function to understand registration logic.",
+            "call": "read_file(path='users/service.py', start_line=22, end_line=34)",
+            "observation": "users/service.py lines 19-38 of 77:\n19 |         self._ids = ids\n20 |         self._clock = clock\n21 | \n22 |     def register(self, email, name, role=Role.MEMBER, handle=None):\n23 |         email = normalize_email(email)\n24 |         name = require_text(name, \"name\", max_length=80)\n25 |         handle = normalize_handle(handle or email.split(\"@\")[0])\n26 |         if not HANDLE_PATTERN.match(handle):\n27 |             raise ValidationError(f\"invalid handle: {handle}\")\n28 |         if self._users.list(lambda user: user.email == email):\n29 |             raise ConflictError(f\"email already registered: {email}\")\n30 |         if self._users.list(lambda user: user.handle == handle):\n31 |             raise ConflictError(f\"handle already taken: {handle}\")\n32 |         user = User(id=self._ids.next(), email=email, name=name, handle=handle,\n33 |                     created_at=self._clock.now(), role=Role(role))\n34 |         return self._users.add(user)\n35 | \n36 |     def get(self, user_id):\n37 |         return self._users.get(user_id)\n38 | \n[widened from 22-34 to give context]\n[Defined elsewhere in this file: HANDLE_PATTERN (lines 8-8), normalize_handle (lines 11-13)]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if the email validation logic is correct.",
+            "call": "read_file(path='common/validation.py', start_line=1, end_line=10)",
+            "observation": "common/validation.py lines 1-20 of 27:\n 1 | \"\"\"Small input validation helpers used by the services.\"\"\"\n 2 | import re\n 3 | \n 4 | from common.errors import ValidationError\n 5 | \n 6 | # local-part@domain.tld — intentionally simple, but requires a dotted domain.\n 7 | EMAIL_PATTERN = re.compile(r\"^[^@\\s]+@[^@\\s]+\\.[A-Za-z]{2,}$\")\n 8 | \n 9 | \n10 | def require_text(value, field, max_length=200):\n11 |     \"\"\"Return ``value`` stripped; reject empty or overly long text.\"\"\"\n12 |     if value is None:\n13 |         raise ValidationError(f\"{field} is required\")\n14 |     text = str(value).strip()\n15 |     if not text:\n16 |         raise ValidationError(f\"{field} must not be empty\")\n17 |     if len(text) > max_length:\n18 |         raise ValidationError(f\"{field} must be at most {max_length} characters\")\n19 |     return text\n20 | \n[widened from 1-10 to give context]\n[Used elsewhere in this file: require_text at line 24 (in normalize_email)]",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Check if the email validation logic is correctly implemented.",
+            "call": "read_file(path='common/validation.py', start_line=1, end_line=20)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 5,
+            "thought": "Check if the email validation logic is correctly implemented.",
+            "call": "read_file(path='common/validation.py', start_line=1, end_line=20)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report indicates that users can register with invalid email addresses like 'ali@' or 'ali@example'. The expected behavior is to reject such registrations with a ValidationError. However, the code does not check if the email has a domain or a top-level domain. The `normalize_email` function is used to validate the email, but it does not enforce the presence of a domain or a top-level domain.",
+          "issue_summary": "Users can register with invalid email addresses that do not have a domain or a top-level domain.",
+          "root_cause": "The `normalize_email` function does not enforce the presence of a domain or a top-level domain in the email address.",
+          "relevant_files": [
+            "users/service.py",
+            "common/validation.py"
+          ],
+          "evidence": [
+            {
+              "file": "users/service.py",
+              "start_line": 23,
+              "end_line": 28,
+              "why": "The `normalize_email` function is used to validate the email, but it does not enforce the presence of a domain or a top-level domain.",
+              "code": "23 |         email = normalize_email(email)\n24 |         name = require_text(name, \"name\", max_length=80)\n25 |         handle = normalize_handle(handle or email.split(\"@\")[0])\n26 |         if not HANDLE_PATTERN.match(handle):\n27 |             raise ValidationError(f\"invalid handle: {handle}\")\n28 |         if self._users.list(lambda user: user.email == email):"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "users/service.py: old_text occurs 2 times; include more context",
+            "users/service.py: old_text occurs 2 times; include more context"
+          ],
+          "applied": false
+        },
+        "files_read": [
+          "users/service.py",
+          "common/validation.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 8,
+          "prompt_tokens": 9738,
+          "output_tokens": 636,
+          "max_prompt_tokens": 1876,
+          "seconds": 39.9,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 5,
+              "prompt_tokens": 7810
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 901
+            },
+            "patch": {
+              "calls": 2,
+              "prompt_tokens": 1027
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5167,
+              "prompt_tokens": 1212,
+              "output_tokens": 26,
+              "seconds": 3.89,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5514,
+              "prompt_tokens": 1294,
+              "output_tokens": 49,
+              "seconds": 2.63,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6555,
+              "prompt_tokens": 1578,
+              "output_tokens": 47,
+              "seconds": 2.97,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7497,
+              "prompt_tokens": 1850,
+              "output_tokens": 48,
+              "seconds": 4.18,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7587,
+              "prompt_tokens": 1876,
+              "output_tokens": 48,
+              "seconds": 4.17,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 3550,
+              "prompt_tokens": 901,
+              "output_tokens": 241,
+              "seconds": 13.3,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2159,
+              "prompt_tokens": 496,
+              "output_tokens": 96,
+              "seconds": 5.67,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2329,
+              "prompt_tokens": 531,
+              "output_tokens": 81,
+              "seconds": 3.13,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 40.1
+      }
+    },
+    {
+      "issue": "easy_02",
+      "difficulty": "easy",
+      "title": "Önceliğe göre sıralamada acil görevler en altta",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": true,
+        "valid_patch": true,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 5,
+        "prompt_tokens": 11521,
+        "seconds": 55.4,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "When I list a project's tasks sorted by priority, URGENT tasks appear at the bottom and LOW tasks at the top. The most important tasks should come first.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_02",
+        "status": "tests_failed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the task sorting logic.",
+            "call": "find_symbol(name='sort_tasks')",
+            "observation": "Definitions of 'sort_tasks':\ntasks/queries.py:48-51  def sort_tasks\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that sorts tasks.",
+            "call": "read_file(path='tasks/queries.py', start_line=48, end_line=51)",
+            "observation": "tasks/queries.py lines 40-59 of 75:\n40 |     # Most important first; older tasks first among equal priorities.\n41 |     \"priority\": lambda task: (task.priority, task.created_at),\n42 |     # Tasks without a due date go last.\n43 |     \"due_date\": lambda task: (task.due_date is None, task.due_date or date.max, -task.priority),\n44 |     \"created\": lambda task: task.created_at,\n45 | }\n46 | \n47 | \n48 | def sort_tasks(tasks, by=\"priority\"):\n49 |     if by not in SORT_KEYS:\n50 |         raise ValidationError(f\"unknown sort key: {by}\")\n51 |     return sorted(tasks, key=SORT_KEYS[by])\n52 | \n53 | \n54 | @dataclass\n55 | class Page:\n56 |     items: list\n57 |     page: int\n58 |     per_page: int\n59 |     total: int\n[widened from 48-51 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check the sort keys used in the project.",
+            "call": "read_file(path='projects/service.py', start_line=1, end_line=59)",
+            "observation": "projects/service.py lines 1-59 of 78:\n 1 | \"\"\"Project lifecycle and membership.\"\"\"\n 2 | import events\n 3 | from common.errors import ConflictError, ValidationError\n 4 | from common.validation import require_text\n 5 | from projects import permissions\n 6 | from projects.models import Project, ProjectRole\n 7 | \n 8 | \n 9 | class ProjectService:\n10 |     def __init__(self, repository, users, ids, clock, bus):\n11 |         self._projects = repository\n12 |         self._users = users\n13 |         self._ids = ids\n14 |         self._clock = clock\n15 |         self._bus = bus\n16 | \n17 |     def create(self, owner_id, name):\n18 |         self._users.require_active(owner_id)\n19 |         project = Project(\n20 |             id=self._ids.next(),\n21 |             name=require_text(name, \"project name\", max_length=120),\n22 |             owner_id=owner_id,\n23 |             created_at=self._clock.now(),\n24 |             members={owner_id: ProjectRole.OWNER},\n25 |         )\n26 |         return self._projects.add(project)\n27 | \n28 |     def get(self, project_id):\n29 |         return self._projects.get(project_id)\n30 | \n31 |     def get_for_user(self, project_id, user_id):\n32 |         project = self._projects.get(project_id)\n33 |         permissions.require(permissions.can_view(project, user_id),\n34 |                             f\"user {user_id} cannot view project {project_id}\")\n35 |         return project\n36 | \n37 |     def add_member(self, project_id, actor_id, user_id, role=ProjectRole.EDITOR):\n38 |         project = self._projects.get(project_id)\n39 |         permissions.require(permissions.can_manage(project, actor_id),\n40 |                             \"only the project owner can add members\")\n41 |         role = ProjectRole(role)\n42 |         if role == ProjectRole.OWNER:\n43 |             raise ValidationError(\"a project has exactly one owner\")\n44 |         self._users.require_active(user_id)\n45 |         if user_id in project.members:\n46 |             raise ConflictError(f\"user {user_id} is already a member\")\n47 |         project.members[user_id] = role\n48 |         self._projects.update(project)\n49 |         self._bus.publish(events.PROJECT_MEMBER_ADDED, project_id=project.id,\n50 |                           user_id=user_id, actor_id=actor_id)\n51 |         return project\n52 | \n53 |     def remove_member(self, project_id, actor_id, user_id):\n54 |         project = self._projects.get(project_id)\n55 |         permissions.require(permissions.can_manage(project, actor_id),\n56 |                             \"only the project owner can remove members\")\n57 |         if user_id == project.owner_id:\n58 |             raise ValidationError(\"the owner cannot be removed from the project\")\n59 |         if user_id not in project.members:",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Check if the sort logic is used in the project service.",
+            "call": "find_symbol(name='sort_tasks')",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 5,
+            "thought": "Read the function that uses sort_tasks.",
+            "call": "find_symbol(name='sort_tasks')",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report indicates that tasks are sorted by priority in descending order, but the actual sorting order is incorrect. The expected order is to sort tasks by priority in ascending order, with URGENT tasks first and LOW tasks last. The actual sorting order is reversed, with URGENT tasks last and LOW tasks first. The issue is in the `sort_tasks` function in `tasks/queries.py`, where the sorting key is defined as `lambda task: (task.priority, task.created_at)`. This means that tasks are sorted first by priority and then by creation date. However, the expected sorting order is to sort tasks first by priority and then by due date, with URGENT tasks first and LOW tasks last. The actual sorting order is reversed, with URGENT tasks last and LOW tasks first.",
+          "issue_summary": "Tasks are sorted by priority in descending order instead of ascending order, with URGENT tasks appearing at the bottom and LOW tasks at the top.",
+          "root_cause": "The sorting key in the `sort_tasks` function is defined as `lambda task: (task.priority, task.created_at)`, which means that tasks are sorted first by priority and then by creation date. However, the expected sorting order is to sort tasks first by priority and then by due date, with URGENT tasks first and LOW tasks last. The actual sorting order is reversed, with URGENT tasks last and LOW tasks first.",
+          "relevant_files": [
+            "tasks/queries.py",
+            "projects/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "tasks/queries.py",
+              "start_line": 41,
+              "end_line": 43,
+              "why": "The sorting key is defined as `lambda task: (task.priority, task.created_at)`, which means that tasks are sorted first by priority and then by creation date.",
+              "code": "41 |     \"priority\": lambda task: (task.priority, task.created_at),\n42 |     # Tasks without a due date go last.\n43 |     \"due_date\": lambda task: (task.due_date is None, task.due_date or date.max, -task.priority),"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "tasks/queries.py: old_text was not found ",
+            "tasks/queries.py: old_text was not found "
+          ],
+          "applied": true,
+          "plan": "Change the sorting key in the `sort_tasks` function to sort tasks first by priority and then by due date, with URGENT tasks first and LOW tasks last.",
+          "diff": "--- a/tasks/queries.py\n+++ b/tasks/queries.py\n@@ -38,7 +38,7 @@\n \n SORT_KEYS = {\n     # Most important first; older tasks first among equal priorities.\n-    \"priority\": lambda task: (task.priority, task.created_at),\n+    \"priority\": lambda task: (task.priority, task.due_date or date.max, -task.priority),\n     # Tasks without a due date go last.\n     \"due_date\": lambda task: (task.due_date is None, task.due_date or date.max, -task.priority),\n     \"created\": lambda task: task.created_at,\n",
+          "changed_lines": 2,
+          "plans": [
+            "Change the sorting key in the `sort_tasks` function to sort tasks first by priority and then by due date, with URGENT tasks first and LOW tasks last."
+          ],
+          "rolled_back": true
+        },
+        "tests": {
+          "passed": false,
+          "repairs": 1,
+          "runs": [
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_queries.py::test_sort_by_priority_puts_urgent_first"
+              ],
+              "summary": "1 failed, 71 passed in 0.05s",
+              "brief": "tests/test_queries.py:17: AssertionError: assert ['task-1', 'task-3', 'task-2'] == ['task-2', 'task-3', 'task-1']\nFAILED tests/test_queries.py::test_sort_by_priority_puts_urgent_first - Asser...",
+              "timed_out": false
+            }
+          ]
+        },
+        "files_read": [
+          "tasks/queries.py",
+          "projects/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 9,
+          "prompt_tokens": 11521,
+          "output_tokens": 899,
+          "max_prompt_tokens": 2319,
+          "seconds": 54.9,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 5,
+              "prompt_tokens": 8600
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 1294
+            },
+            "patch": {
+              "calls": 1,
+              "prompt_tokens": 434
+            },
+            "repair": {
+              "calls": 2,
+              "prompt_tokens": 1193
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5122,
+              "prompt_tokens": 1208,
+              "output_tokens": 28,
+              "seconds": 3.88,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5457,
+              "prompt_tokens": 1296,
+              "output_tokens": 47,
+              "seconds": 2.33,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6169,
+              "prompt_tokens": 1529,
+              "output_tokens": 47,
+              "seconds": 3.04,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 9041,
+              "prompt_tokens": 2248,
+              "output_tokens": 34,
+              "seconds": 4.92,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 9357,
+              "prompt_tokens": 2319,
+              "output_tokens": 30,
+              "seconds": 5.15,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 5102,
+              "prompt_tokens": 1294,
+              "output_tokens": 405,
+              "seconds": 22.1,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 1791,
+              "prompt_tokens": 434,
+              "output_tokens": 106,
+              "seconds": 5.22,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 2894,
+              "prompt_tokens": 720,
+              "output_tokens": 103,
+              "seconds": 4.77,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 1965,
+              "prompt_tokens": 473,
+              "output_tokens": 99,
+              "seconds": 3.49,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 55.4
+      }
+    },
+    {
+      "issue": "easy_03",
+      "difficulty": "easy",
+      "title": "Engellenmiş görev tekrar başlatılamıyor",
+      "metrics": {
+        "retrieval": false,
+        "diagnosis": false,
+        "valid_patch": true,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 4,
+        "prompt_tokens": 11059,
+        "seconds": 52.7,
+        "unsafe_or_invalid": 1
+      },
+      "report": {
+        "issue": "A task that was marked BLOCKED cannot be moved back to IN_PROGRESS once the blocker is resolved; the service raises 'cannot move task from blocked to in_progress'. Resuming a blocked task should be allowed.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_03",
+        "status": "tests_failed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the task service that handles task status changes.",
+            "call": "find_symbol(name='TaskService')",
+            "observation": "Definitions of 'TaskService':\ntasks/service.py:10-126  class TaskService\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the TaskService class to understand its methods.",
+            "call": "read_file(path='tasks/service.py', start_line=10, end_line=126)",
+            "observation": "tasks/service.py lines 10-89 of 126:\n10 | class TaskService:\n11 |     def __init__(self, repository, projects, users, ids, clock, bus):\n12 |         self._tasks = repository\n13 |         self._projects = projects\n14 |         self._users = users\n15 |         self._ids = ids\n16 |         self._clock = clock\n17 |         self._bus = bus\n18 |         bus.subscribe(events.PROJECT_MEMBER_REMOVED, self.on_member_removed)\n19 | \n20 |     # -- helpers -----------------------------------------------------------\n21 |     def _editable_project(self, project_id, actor_id):\n22 |         project = self._projects.get(project_id)\n23 |         permissions.require(permissions.can_edit(project, actor_id),\n24 |                             f\"user {actor_id} cannot edit project {project_id}\")\n25 |         return project\n26 | \n27 |     def _check_assignee(self, project, assignee_id):\n28 |         self._users.require_active(assignee_id)\n29 |         if not permissions.can_view(project, assignee_id):\n30 |             raise ValidationError(f\"user {assignee_id} is not a member of {project.id}\")\n31 | \n32 |     def _touch(self, task):\n33 |         task.updated_at = self._clock.now()\n34 |         return self._tasks.update(task)\n35 | \n36 |     # -- commands ----------------------------------------------------------\n37 |     def create(self, project_id, actor_id, title, priority=Priority.MEDIUM,\n38 |                due_date=None, description=\"\", assignee_id=None):\n39 |         project = self._editable_project(project_id, actor_id)\n40 |         if assignee_id is not None:\n41 |             self._check_assignee(project, assignee_id)\n42 |         now = self._clock.now()\n43 |         task = Task(\n44 |             id=self._ids.next(), project_id=project.id,\n45 |             title=require_text(title, \"title\", max_length=200),\n46 |             description=(description or \"\").strip(),\n47 |             created_by=actor_id, created_at=now, updated_at=now,\n48 |             priority=Priority(priority), assignee_id=assignee_id, due_date=due_date,\n49 |         )\n50 |         self._tasks.add(task)\n51 |         if assignee_id is not None:\n52 |             self._bus.publish(events.TASK_ASSIGNED, task_id=task.id,\n53 |                               assignee_id=assignee_id, actor_id=actor_id)\n54 |         return task\n55 | \n56 |     def get(self, task_id):\n57 |         return self._tasks.get(task_id)\n58 | \n59 |     def list_for_project(self, project_id, user_id):\n60 |         self._projects.get_for_user(project_id, user_id)\n61 |         return self._tasks.list(lambda t: t.project_id == project_id)\n62 | \n63 |     def assign(self, task_id, actor_id, assignee_id):\n64 |         task = self._tasks.get(task_id)\n65 |         project = self._editable_project(task.project_id, actor_id)\n66 |         self._check_assignee(project, assignee_id)\n67 |         task.assignee_id = assignee_id\n68 |         self._touch(task)\n69 |         self._bus.publish(events.TASK_ASSIGNED, task_id=task.id,\n70 |                           assignee_id=task.assignee_id, actor_id=actor_id)\n71 |         return task\n72 | \n73 |     def on_member_removed(self, project_id, user_id, actor_id):\n74 |         \"\"\"Someone left the project: their open tasks there become unassigned.\"\"\"\n75 |         for task in self._tasks.list(lambda t: t.project_id == project_id):\n76 |             if task.assignee_id == user_id:\n77 |                 task.assignee_id = None\n78 |                 self._touch(task)\n79 | \n80 |     def change_status(self, task_id, actor_id, status):\n81 |         task = self._tasks.get(task_id)\n82 |         self._editable_project(task.project_id, actor_id)\n83 |         status = Status(status)\n84 |         workflow.ensure_transition(task.status, status)\n85 |         old_status = task.status\n86 |         task.status = status\n87 |         if status == Status.DONE:\n88 |             task.completed_at = self._clock.now()\n89 |         self._touch(task)\n[showing 80 lines; continue with start_line=90 if you need more]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if the task status is updated correctly when moving from BLOCKED to IN_PROGRESS.",
+            "call": "read_file(path='tasks/service.py', start_line=80, end_line=89)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 4,
+            "thought": "Check if the 'on_member_removed' method handles blocked tasks correctly.",
+            "call": "read_file(path='tasks/service.py', start_line=74, end_line=89)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that a task marked BLOCKED cannot be moved back to IN_PROGRESS once the blocker is resolved. However, the code allows resuming a blocked task. The issue is in the `change_status` method where the transition from BLOCKED to IN_PROGRESS is allowed without checking if the task is still blocked.",
+          "issue_summary": "Resuming a blocked task is allowed in the `change_status` method without checking if the task is still blocked.",
+          "root_cause": "The `change_status` method does not check if the task is still in the BLOCKED status before allowing a transition to IN_PROGRESS. This allows a task to be moved back to IN_PROGRESS even if it is still blocked.",
+          "relevant_files": [
+            "tasks/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "tasks/service.py",
+              "start_line": 79,
+              "end_line": 87,
+              "why": "The `change_status` method allows a transition from BLOCKED to IN_PROGRESS without checking if the task is still BLOCKED.",
+              "code": "79 | \n80 |     def change_status(self, task_id, actor_id, status):\n81 |         task = self._tasks.get(task_id)\n82 |         self._editable_project(task.project_id, actor_id)\n83 |         status = Status(status)\n84 |         workflow.ensure_transition(task.status, status)\n85 |         old_status = task.status\n86 |         task.status = status\n87 |         if status == Status.DONE:"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 1,
+          "rejections": [
+            "tasks/service.py: old_text was not found "
+          ],
+          "applied": true,
+          "plan": "Modify the `change_status` method to check if the task is still in the BLOCKED status before allowing a transition to IN_PROGRESS.",
+          "diff": "--- a/tasks/service.py\n+++ b/tasks/service.py\n@@ -84,7 +84,7 @@\n         workflow.ensure_transition(task.status, status)\n         old_status = task.status\n         task.status = status\n-        if status == Status.DONE:\n+        if status == Status.DONE and task.status == Status.BLOCKED:\n             task.completed_at = self._clock.now()\n         self._touch(task)\n         self._bus.publish(events.TASK_STATUS_CHANGED, task_id=task.id,\n",
+          "changed_lines": 6,
+          "plans": [
+            "Modify the `change_status` method to check if the task is still in the BLOCKED status before allowing a transition to IN_PROGRESS.",
+            "Modify the `change_status` method to check if the task is still in the BLOCKED status before allowing a transition to IN_PROGRESS.",
+            "Add a check to ensure the task is still in the BLOCKED status before allowing a transition to IN_PROGRESS."
+          ],
+          "rolled_back": true
+        },
+        "tests": {
+          "passed": false,
+          "repairs": 2,
+          "runs": [
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_workflow.py::test_blocked_task_can_resume"
+              ],
+              "summary": "1 failed, 71 passed in 0.06s",
+              "brief": "tasks/workflow.py:31: common.errors.ValidationError: cannot move task from blocked to in_progress\nFAILED tests/test_workflow.py::test_blocked_task_can_resume - common.errors.V...",
+              "timed_out": false
+            },
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_workflow.py::test_blocked_task_can_resume"
+              ],
+              "summary": "1 failed, 71 passed in 0.05s",
+              "brief": "tasks/workflow.py:31: common.errors.ValidationError: cannot move task from blocked to in_progress\nFAILED tests/test_workflow.py::test_blocked_task_can_resume - common.errors.V...",
+              "timed_out": false
+            },
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_reports.py::test_progress_counts_done_tasks",
+                "tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it",
+                "tests/test_workflow.py::test_blocked_task_can_resume"
+              ],
+              "summary": "3 failed, 69 passed in 0.06s",
+              "brief": "tests/test_reports.py:15: assert (3, 0, 0) == (3, 1, 33)\ntests/test_tasks.py:35: AssertionError: assert None == datetime.datetime(2026, 3, 2, 9, 0, tzinfo=datetime.timezone.utc)\ntasks/workflow.py:31: common.errors.ValidationError: cannot move task from blocked to in_progress\nFAILED tests/test_reports.py::test_progress_counts_done_tasks - assert (3, 0,...\nFAILED tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it\nFAILED tests/test_workflow.py::test_blocked_task_can_resume - common.errors.V...",
+              "timed_out": false
+            }
+          ]
+        },
+        "files_read": [
+          "tasks/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 9,
+          "prompt_tokens": 11059,
+          "output_tokens": 812,
+          "max_prompt_tokens": 2357,
+          "seconds": 51.7,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 4,
+              "prompt_tokens": 7207
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 1416
+            },
+            "patch": {
+              "calls": 1,
+              "prompt_tokens": 478
+            },
+            "repair": {
+              "calls": 3,
+              "prompt_tokens": 1958
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5175,
+              "prompt_tokens": 1216,
+              "output_tokens": 32,
+              "seconds": 4.9,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5522,
+              "prompt_tokens": 1304,
+              "output_tokens": 50,
+              "seconds": 2.13,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 9444,
+              "prompt_tokens": 2330,
+              "output_tokens": 56,
+              "seconds": 5.42,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 9531,
+              "prompt_tokens": 2357,
+              "output_tokens": 53,
+              "seconds": 5.4,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 5623,
+              "prompt_tokens": 1416,
+              "output_tokens": 239,
+              "seconds": 15.07,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2099,
+              "prompt_tokens": 478,
+              "output_tokens": 90,
+              "seconds": 6.24,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 3142,
+              "prompt_tokens": 713,
+              "output_tokens": 85,
+              "seconds": 3.65,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 2281,
+              "prompt_tokens": 516,
+              "output_tokens": 106,
+              "seconds": 4.08,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 3210,
+              "prompt_tokens": 729,
+              "output_tokens": 101,
+              "seconds": 4.83,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 52.7
+      }
+    },
+    {
+      "issue": "easy_04",
+      "difficulty": "easy",
+      "title": "Tamamlanmış görevler gecikmiş listesinde görünüyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": true,
+        "valid_patch": false,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 5,
+        "prompt_tokens": 9398,
+        "seconds": 39.4,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "Tasks that are already DONE still show up in the project's overdue task list if their due date has passed. Completed tasks should never be reported as overdue.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_04",
+        "status": "patch_unavailable",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the task overdue logic.",
+            "call": "find_symbol(name='is_overdue')",
+            "observation": "Definitions of 'is_overdue':\ntasks/service.py:108-112  def TaskService.is_overdue\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that checks if a task is overdue.",
+            "call": "read_file(path='tasks/service.py', start_line=108, end_line=112)",
+            "observation": "tasks/service.py lines 101-120 of 125:\n101 |         task.completed_at = None\n102 |         self._touch(task)\n103 |         self._bus.publish(events.TASK_STATUS_CHANGED, task_id=task.id,\n104 |                           old_status=old_status, new_status=task.status, actor_id=actor_id)\n105 |         return task\n106 | \n107 |     # -- queries -----------------------------------------------------------\n108 |     def is_overdue(self, task, today=None):\n109 |         \"\"\"A task is overdue when its due date has passed and it is not done.\"\"\"\n110 |         today = today or self._clock.now().date()\n111 |         return (task.due_date is not None\n112 |                 and task.due_date < today)\n113 | \n114 |     def overdue_tasks(self, project_id, user_id):\n115 |         self._projects.get_for_user(project_id, user_id)\n116 |         return [task for task in self._tasks.list(lambda t: t.project_id == project_id)\n117 |                 if self.is_overdue(task)]\n118 | \n119 |     def search(self, project_id, user_id, task_filter=None, sort_by=\"priority\",\n120 |                page=1, per_page=20):\n[widened from 108-112 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check the usage of 'is_overdue' in the project's overdue task list.",
+            "call": "search_code(query='is_overdue')",
+            "observation": "3 matches for 'is_overdue':\ntasks/service.py:108 (in TaskService.is_overdue): def is_overdue(self, task, today=None):\ntasks/service.py:117 (in TaskService.overdue_tasks): if self.is_overdue(task)]\ntests/test_tasks.py:50 (in test_task_due_today_is_not_overdue): assert not app.tasks.is_overdue(task)",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Check the usage of 'is_overdue' in tests.",
+            "call": "search_code(query='is_overdue')",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 5,
+            "thought": "Read the function that implements the overdue logic.",
+            "call": "read_file(path='tasks/service.py', start_line=108, end_line=112)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that tasks that are already DONE still show up in the project's overdue task list if their due date has passed. This is because the `is_overdue` method checks if a task's due date is less than today's date, but it does not check if the task is completed. If a task is completed, its `completed_at` field is set to a non-null value, and the `is_overdue` method returns False, but the task is still included in the overdue task list.",
+          "issue_summary": "Tasks that are already DONE still show up in the project's overdue task list if their due date has passed.",
+          "root_cause": "The `is_overdue` method does not check if a task is completed before determining if it is overdue. If a task is completed, its `completed_at` field is set to a non-null value, and the `is_overdue` method returns False, but the task is still included in the overdue task list.",
+          "relevant_files": [
+            "tasks/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "tasks/service.py",
+              "start_line": 108,
+              "end_line": 113,
+              "why": "The `is_overdue` method checks if a task's due date is less than today's date, but it does not check if the task is completed.",
+              "code": "108 |     def is_overdue(self, task, today=None):\n109 |         \"\"\"A task is overdue when its due date has passed and it is not done.\"\"\"\n110 |         today = today or self._clock.now().date()\n111 |         return (task.due_date is not None\n112 |                 and task.due_date < today)\n113 | "
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "tasks/service.py: old_text was not found ",
+            "tasks/service.py: old_text was not found "
+          ],
+          "applied": false
+        },
+        "files_read": [
+          "tasks/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 8,
+          "prompt_tokens": 9398,
+          "output_tokens": 761,
+          "max_prompt_tokens": 1802,
+          "seconds": 39.2,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 5,
+              "prompt_tokens": 7705
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 689
+            },
+            "patch": {
+              "calls": 2,
+              "prompt_tokens": 1004
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5128,
+              "prompt_tokens": 1205,
+              "output_tokens": 29,
+              "seconds": 4.24,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5491,
+              "prompt_tokens": 1305,
+              "output_tokens": 52,
+              "seconds": 2.44,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6576,
+              "prompt_tokens": 1612,
+              "output_tokens": 58,
+              "seconds": 3.21,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7265,
+              "prompt_tokens": 1802,
+              "output_tokens": 43,
+              "seconds": 3.23,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7233,
+              "prompt_tokens": 1781,
+              "output_tokens": 50,
+              "seconds": 2.96,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 2744,
+              "prompt_tokens": 689,
+              "output_tokens": 308,
+              "seconds": 13.44,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2059,
+              "prompt_tokens": 487,
+              "output_tokens": 119,
+              "seconds": 6.04,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2207,
+              "prompt_tokens": 517,
+              "output_tokens": 102,
+              "seconds": 3.61,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 39.4
+      }
+    },
+    {
+      "issue": "easy_05",
+      "difficulty": "easy",
+      "title": "Okundu işaretlenen bildirim, okunmamış sayısını azaltmıyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": true,
+        "valid_patch": true,
+        "tests_pass": true,
+        "autonomous": true,
+        "steps": 4,
+        "prompt_tokens": 8876,
+        "seconds": 48.1,
+        "unsafe_or_invalid": 1
+      },
+      "report": {
+        "issue": "After a user marks a notification as read, their unread notification count stays the same. The count (and the unread list) should only include notifications that have not been read.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_05",
+        "status": "fixed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the notification service that handles marking as read.",
+            "call": "find_symbol(name='NotificationService')",
+            "observation": "Definitions of 'NotificationService':\nnotifications/service.py:7-52  class NotificationService\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the NotificationService class definition.",
+            "call": "read_file(path='notifications/service.py', start_line=7, end_line=52)",
+            "observation": "notifications/service.py lines 7-52 of 52:\n 7 | class NotificationService:\n 8 |     def __init__(self, repository, preferences, ids, clock):\n 9 |         self._notifications = repository\n10 |         self._preferences = preferences\n11 |         self._ids = ids\n12 |         self._clock = clock\n13 |         self.email_outbox = []  # (user_id, message) pairs waiting to be sent\n14 | \n15 |     def notify(self, user_id, kind, message):\n16 |         \"\"\"Create an in-app notification unless the user muted ``kind``.\n17 | \n18 |         Returns the notification, or ``None`` when it was muted.\n19 |         \"\"\"\n20 |         prefs = self._preferences.get(user_id)\n21 |         if kind in prefs.muted_kinds:\n22 |             return None\n23 |         now = self._clock.now()\n24 |         notification = Notification(id=self._ids.next(), user_id=user_id, kind=kind,\n25 |                                     message=message, created_at=now)\n26 |         self._notifications.add(notification)\n27 |         if prefs.email_enabled and not in_quiet_hours(prefs, now.hour):\n28 |             self.email_outbox.append((user_id, message))\n29 |         return notification\n30 | \n31 |     def for_user(self, user_id):\n32 |         \"\"\"All notifications of a user, newest first.\"\"\"\n33 |         items = self._notifications.list(lambda n: n.user_id == user_id)\n34 |         return sorted(items, key=lambda n: n.created_at, reverse=True)\n35 | \n36 |     def unread(self, user_id):\n37 |         return self.for_user(user_id)\n38 | \n39 |     def unread_count(self, user_id):\n40 |         return len(self.unread(user_id))\n41 | \n42 |     def mark_read(self, notification_id, user_id):\n43 |         notification = self._notifications.get(notification_id)\n44 |         if notification.user_id != user_id:\n45 |             raise PermissionDeniedError(\"cannot read another user's notification\")\n46 |         notification.read = True\n47 |         return self._notifications.update(notification)\n48 | \n49 |     def mark_all_read(self, user_id):\n50 |         for notification in self.unread(user_id):\n51 |             notification.read = True\n52 |             self._notifications.update(notification)",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if the unread notifications are being filtered correctly.",
+            "call": "read_file(path='notifications/service.py', start_line=31, end_line=41)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 4,
+            "thought": "Check if the unread notifications are being filtered correctly.",
+            "call": "read_file(path='notifications/service.py', start_line=31, end_line=41)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that after marking a notification as read, the unread notification count remains the same. This means that the `unread_count` method is not correctly updating the count of unread notifications. Let's trace the flow of the code to identify the issue.\n\n1. The `mark_read` method is called with `notification_id` and `user_id` as arguments.\n2. The `mark_read` method retrieves the notification using `self._notifications.get(notification_id)`.\n3. It checks if the `notification.user_id` matches `user_id`. If not, it raises a `PermissionDeniedError`.\n4. If the `notification.user_id` matches `user_id`, it sets `notification.read` to `True`.\n5. The `mark_read` method then updates the notification using `self._notifications.update(notification)`.\n\nThe issue is that the `unread_count` method is not being updated after marking a notification as read. This is because the `unread_count` method calls `self.unread(user_id)`, which returns all unread notifications for the user, but does not update the count of unread notifications.\n\nThe `unread` method calls `self._notifications.list(lambda n: n.user_id == user_id)`, which returns all notifications for the user, but does not use",
+          "issue_summary": "The `unread_count` method does not update the count of unread notifications after marking a notification as read.",
+          "root_cause": "The `unread_count` method does not update the count of unread notifications after marking a notification as read. This is because the `unread` method returns all notifications for the user, but does not use the `read` attribute of the notifications to filter out the unread ones.",
+          "relevant_files": [
+            "notifications/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "notifications/service.py",
+              "start_line": 42,
+              "end_line": 47,
+              "why": "The `mark_read` method sets `notification.read` to `True`.",
+              "code": "42 |     def mark_read(self, notification_id, user_id):\n43 |         notification = self._notifications.get(notification_id)\n44 |         if notification.user_id != user_id:\n45 |             raise PermissionDeniedError(\"cannot read another user's notification\")\n46 |         notification.read = True\n47 |         return self._notifications.update(notification)"
+            },
+            {
+              "file": "notifications/service.py",
+              "start_line": 48,
+              "end_line": 52,
+              "why": "The `mark_read` method updates the notification using `self._notifications.update(notification)`.",
+              "code": "48 | \n49 |     def mark_all_read(self, user_id):\n50 |         for notification in self.unread(user_id):\n51 |             notification.read = True\n52 |             self._notifications.update(notification)"
+            },
+            {
+              "file": "notifications/service.py",
+              "start_line": 40,
+              "end_line": 41,
+              "why": "The `unread_count` method calls `self.unread(user_id)`, which returns all unread notifications for the user.",
+              "code": "40 |         return len(self.unread(user_id))\n41 | "
+            },
+            {
+              "file": "notifications/service.py",
+              "start_line": 36,
+              "end_line": 37,
+              "why": "The `unread` method calls `self.for_user(user_id)`, which returns all notifications for the user.",
+              "code": "36 |     def unread(self, user_id):\n37 |         return self.for_user(user_id)"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 1,
+          "rejections": [
+            "notifications/service.py: old_text occurs 2 times; include more context"
+          ],
+          "applied": true,
+          "plan": "Modify the `unread_count` method to filter out unread notifications before counting them.",
+          "diff": "--- a/notifications/service.py\n+++ b/notifications/service.py\n@@ -37,7 +37,7 @@\n         return self.for_user(user_id)\n \n     def unread_count(self, user_id):\n-        return len(self.unread(user_id))\n+        return len([n for n in self.unread(user_id) if not n.read])\n \n     def mark_read(self, notification_id, user_id):\n         notification = self._notifications.get(notification_id)\n",
+          "changed_lines": 2,
+          "plans": [
+            "Modify the `unread_count` method to filter out unread notifications before counting them."
+          ]
+        },
+        "tests": {
+          "passed": true,
+          "repairs": 0,
+          "runs": [
+            {
+              "passed": true,
+              "failed": [],
+              "summary": "72 passed in 0.05s",
+              "brief": "",
+              "timed_out": false
+            }
+          ]
+        },
+        "files_read": [
+          "notifications/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 7,
+          "prompt_tokens": 8876,
+          "output_tokens": 1026,
+          "max_prompt_tokens": 1873,
+          "seconds": 47.6,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 4,
+              "prompt_tokens": 6221
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 938
+            },
+            "patch": {
+              "calls": 2,
+              "prompt_tokens": 1717
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5150,
+              "prompt_tokens": 1209,
+              "output_tokens": 32,
+              "seconds": 3.34,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5557,
+              "prompt_tokens": 1293,
+              "output_tokens": 45,
+              "seconds": 1.76,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7701,
+              "prompt_tokens": 1846,
+              "output_tokens": 49,
+              "seconds": 4.21,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7796,
+              "prompt_tokens": 1873,
+              "output_tokens": 49,
+              "seconds": 3.44,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 3838,
+              "prompt_tokens": 938,
+              "output_tokens": 620,
+              "seconds": 24.44,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 3923,
+              "prompt_tokens": 841,
+              "output_tokens": 146,
+              "seconds": 7.56,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 4101,
+              "prompt_tokens": 876,
+              "output_tokens": 85,
+              "seconds": 2.87,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 48.1
+      }
+    },
+    {
+      "issue": "hard_01",
+      "difficulty": "hard",
+      "title": "Devre dışı bırakılan kullanıcı bildirim almaya devam ediyor",
+      "metrics": {
+        "retrieval": false,
+        "diagnosis": false,
+        "valid_patch": false,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 5,
+        "prompt_tokens": 10335,
+        "seconds": 38.4,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "A user who was deactivated by an admin keeps receiving notifications, for example when a task they created is completed or when someone mentions them in a comment. Deactivated accounts should not receive any notifications.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/hard_01",
+        "status": "patch_unavailable",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the notification logic.",
+            "call": "find_symbol(name='NotificationService')",
+            "observation": "Definitions of 'NotificationService':\nnotifications/service.py:7-52  class NotificationService\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the NotificationService class definition.",
+            "call": "read_file(path='notifications/service.py', start_line=7, end_line=52)",
+            "observation": "notifications/service.py lines 7-52 of 52:\n 7 | class NotificationService:\n 8 |     def __init__(self, repository, preferences, ids, clock):\n 9 |         self._notifications = repository\n10 |         self._preferences = preferences\n11 |         self._ids = ids\n12 |         self._clock = clock\n13 |         self.email_outbox = []  # (user_id, message) pairs waiting to be sent\n14 | \n15 |     def notify(self, user_id, kind, message):\n16 |         \"\"\"Create an in-app notification unless the user muted ``kind``.\n17 | \n18 |         Returns the notification, or ``None`` when it was muted.\n19 |         \"\"\"\n20 |         prefs = self._preferences.get(user_id)\n21 |         if kind in prefs.muted_kinds:\n22 |             return None\n23 |         now = self._clock.now()\n24 |         notification = Notification(id=self._ids.next(), user_id=user_id, kind=kind,\n25 |                                     message=message, created_at=now)\n26 |         self._notifications.add(notification)\n27 |         if prefs.email_enabled and not in_quiet_hours(prefs, now.hour):\n28 |             self.email_outbox.append((user_id, message))\n29 |         return notification\n30 | \n31 |     def for_user(self, user_id):\n32 |         \"\"\"All notifications of a user, newest first.\"\"\"\n33 |         items = self._notifications.list(lambda n: n.user_id == user_id)\n34 |         return sorted(items, key=lambda n: n.created_at, reverse=True)\n35 | \n36 |     def unread(self, user_id):\n37 |         return [n for n in self.for_user(user_id) if not n.read]\n38 | \n39 |     def unread_count(self, user_id):\n40 |         return len(self.unread(user_id))\n41 | \n42 |     def mark_read(self, notification_id, user_id):\n43 |         notification = self._notifications.get(notification_id)\n44 |         if notification.user_id != user_id:\n45 |             raise PermissionDeniedError(\"cannot read another user's notification\")\n46 |         notification.read = True\n47 |         return self._notifications.update(notification)\n48 | \n49 |     def mark_all_read(self, user_id):\n50 |         for notification in self.unread(user_id):\n51 |             notification.read = True\n52 |             self._notifications.update(notification)",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if the NotificationService is used in the EventBus.",
+            "call": "search_code(query='NotificationService')",
+            "observation": "4 matches for 'NotificationService':\napp.py:11: from notifications.service import NotificationService\napp.py:28 (in App): notifications: NotificationService\napp.py:45 (in build_app): notifications = NotificationService(InMemoryRepository(\"notification\"), preferences,\nnotifications/service.py:7 (in NotificationService): class NotificationService:",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Read the NotificationService class definition.",
+            "call": "read_file(path='notifications/service.py', start_line=7, end_line=52)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 5,
+            "thought": "Check if the NotificationService is used in the EventBus.",
+            "call": "search_code(query='NotificationService')",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report indicates that a deactivated user is receiving notifications, even though the code should prevent this. Let's trace the scenario through the code:\n\n1. The user is deactivated, but the `notify` method is called with the user's ID.\n2. The `notify` method checks if the user's ID is in the list of muted kinds. Since the user is deactivated, this check is skipped.\n3. The notification is created and added to the `_notifications` repository.\n4. The `email_outbox` is checked to see if the user's email is enabled and if it's not in quiet hours. Since the user is deactivated, this check is skipped.\n5. The notification is returned.\n\nThe issue is that the `notify` method does not check if the user is deactivated before creating and adding the notification, which leads to the bug.",
+          "issue_summary": "Deactivated users are receiving notifications despite the code preventing this.",
+          "root_cause": "The `notify` method does not check if the user is deactivated before creating and adding the notification.",
+          "relevant_files": [
+            "notifications/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "notifications/service.py",
+              "start_line": 15,
+              "end_line": 16,
+              "why": "The `notify` method does not check if the user is deactivated before creating and adding the notification.",
+              "code": "15 |     def notify(self, user_id, kind, message):\n16 |         \"\"\"Create an in-app notification unless the user muted ``kind``."
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "the new code uses names that do not exist anywhere in the repository: is_deactivated. instead of 'is_deactivated' maybe: deactivate, include_archived, active. Use only existing fields/functions or remove that code.",
+            "the new code uses names that do not exist anywhere in the repository: deactivated. instead of 'deactivated' maybe: deactivate, active, archived. Use only existing fields/functions or remove that code."
+          ],
+          "applied": false
+        },
+        "files_read": [
+          "notifications/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 8,
+          "prompt_tokens": 10335,
+          "output_tokens": 681,
+          "max_prompt_tokens": 2011,
+          "seconds": 38.1,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 5,
+              "prompt_tokens": 8338
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 952
+            },
+            "patch": {
+              "calls": 2,
+              "prompt_tokens": 1045
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5191,
+              "prompt_tokens": 1213,
+              "output_tokens": 27,
+              "seconds": 3.07,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5598,
+              "prompt_tokens": 1297,
+              "output_tokens": 45,
+              "seconds": 1.88,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7769,
+              "prompt_tokens": 1860,
+              "output_tokens": 33,
+              "seconds": 3.91,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 8504,
+              "prompt_tokens": 2011,
+              "output_tokens": 45,
+              "seconds": 3.88,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 8190,
+              "prompt_tokens": 1957,
+              "output_tokens": 48,
+              "seconds": 3.65,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 3906,
+              "prompt_tokens": 952,
+              "output_tokens": 315,
+              "seconds": 14.18,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2221,
+              "prompt_tokens": 490,
+              "output_tokens": 87,
+              "seconds": 4.36,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2542,
+              "prompt_tokens": 555,
+              "output_tokens": 81,
+              "seconds": 3.14,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 38.4
+      }
+    },
+    {
+      "issue": "hard_02",
+      "difficulty": "hard",
+      "title": "Yeniden açılan görev ilerleme raporunda hâlâ tamamlanmış sayılıyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": false,
+        "valid_patch": true,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 6,
+        "prompt_tokens": 11745,
+        "seconds": 40.0,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "After a DONE task is reopened, the project progress report still counts it as done, so the completion percentage is too high.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/hard_02",
+        "status": "tests_failed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the task reopening logic.",
+            "call": "find_symbol(name='reopen')",
+            "observation": "Definitions of 'reopen':\ntasks/service.py:94-104  def TaskService.reopen\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the reopen method to understand its behavior.",
+            "call": "read_file(path='tasks/service.py', start_line=94, end_line=104)",
+            "observation": "tasks/service.py lines 90-109 of 125:\n 90 |         self._bus.publish(events.TASK_STATUS_CHANGED, task_id=task.id,\n 91 |                           old_status=old_status, new_status=status, actor_id=actor_id)\n 92 |         return task\n 93 | \n 94 |     def reopen(self, task_id, actor_id):\n 95 |         task = self._tasks.get(task_id)\n 96 |         self._editable_project(task.project_id, actor_id)\n 97 |         if task.status != Status.DONE:\n 98 |             raise ValidationError(\"only done tasks can be reopened\")\n 99 |         old_status = task.status\n100 |         task.status = Status.TODO\n101 |         self._touch(task)\n102 |         self._bus.publish(events.TASK_STATUS_CHANGED, task_id=task.id,\n103 |                           old_status=old_status, new_status=task.status, actor_id=actor_id)\n104 |         return task\n105 | \n106 |     # -- queries -----------------------------------------------------------\n107 |     def is_overdue(self, task, today=None):\n108 |         \"\"\"A task is overdue when its due date has passed and it is not done.\"\"\"\n109 |         today = today or self._clock.now().date()\n[widened from 94-104 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check the project progress report logic.",
+            "call": "find_symbol(name='ProjectReports')",
+            "observation": "Definitions of 'ProjectReports':\nreports/stats.py:22-42  class ProjectReports\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Check if ProjectReports is used in the reopen method.",
+            "call": "search_code(query='ProjectReports')",
+            "observation": "4 matches for 'ProjectReports':\napp.py:13: from reports.stats import ProjectReports\napp.py:31 (in App): reports: ProjectReports\napp.py:49 (in build_app): reports = ProjectReports(tasks)\nreports/stats.py:22 (in ProjectReports): class ProjectReports:",
+            "status": "ok"
+          },
+          {
+            "number": 5,
+            "thought": "Check if ProjectReports is used elsewhere in the project.",
+            "call": "search_code(query='ProjectReports')",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 6,
+            "thought": "Read the function that implements the reopen behavior.",
+            "call": "read_file(path='tasks/service.py', start_line=94, end_line=104)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report indicates that after a DONE task is reopened, the project progress report still counts it as done, leading to an incorrect completion percentage. This discrepancy arises from the fact that the task's status is not being updated correctly in the reopen method. Specifically, the task's status is being set to Status.TODO, but the task's status is not being updated in the database or the event bus. This means that the task's status is not being updated in the project progress report, which is causing the completion percentage to be too high.",
+          "issue_summary": "After reopening a DONE task, the project progress report incorrectly counts it as done, leading to an incorrect completion percentage.",
+          "root_cause": "The task's status is not being updated correctly in the reopen method. Specifically, the task's status is being set to Status.TODO, but the task's status is not being updated in the database or the event bus.",
+          "relevant_files": [
+            "tasks/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "tasks/service.py",
+              "start_line": 95,
+              "end_line": 104,
+              "why": "The task's status is being set to Status.TODO, but the task's status is not being updated in the database or the event bus.",
+              "code": "95 |         task = self._tasks.get(task_id)\n96 |         self._editable_project(task.project_id, actor_id)\n97 |         if task.status != Status.DONE:\n98 |             raise ValidationError(\"only done tasks can be reopened\")\n99 |         old_status = task.status\n100 |         task.status = Status.TODO\n101 |         self._touch(task)\n102 |         self._bus.publish(events.TASK_STATUS_CHANGED, task_id=task.id,\n103 |                           old_status=old_status, new_status=task.status, actor_id=actor_id)\n104 |         return task"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "tasks/service.py: old_text was not found ",
+            "the new code uses names that do not exist anywhere in the repository: REOPENED. Use only existing fields/functions or remove that code."
+          ],
+          "applied": true,
+          "plan": "Change the task's status to Status.DONE in the reopen method after updating the task's status to Status.TODO.",
+          "diff": "--- a/tasks/service.py\n+++ b/tasks/service.py\n@@ -97,7 +97,7 @@\n         if task.status != Status.DONE:\n             raise ValidationError(\"only done tasks can be reopened\")\n         old_status = task.status\n-        task.status = Status.TODO\n+        task.status = Status.DONE\n         self._touch(task)\n         self._bus.publish(events.TASK_STATUS_CHANGED, task_id=task.id,\n                           old_status=old_status, new_status=task.status, actor_id=actor_id)\n",
+          "changed_lines": 2,
+          "plans": [
+            "Change the task's status to Status.DONE in the reopen method after updating the task's status to Status.TODO."
+          ],
+          "rolled_back": true
+        },
+        "tests": {
+          "passed": false,
+          "repairs": 1,
+          "runs": [
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_reports.py::test_reopened_task_is_no_longer_done",
+                "tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it"
+              ],
+              "summary": "2 failed, 70 passed in 0.06s",
+              "brief": "tests/test_reports.py:27: AssertionError: assert 1 == 0\ntests/test_tasks.py:37: AssertionError: assert <Status.DONE: 'done'> == <Status.TODO: 'todo'>\nFAILED tests/test_reports.py::test_reopened_task_is_no_longer_done - Assertio...\nFAILED tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it",
+              "timed_out": false
+            }
+          ]
+        },
+        "files_read": [
+          "tasks/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 10,
+          "prompt_tokens": 11745,
+          "output_tokens": 758,
+          "max_prompt_tokens": 1771,
+          "seconds": 39.4,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 6,
+              "prompt_tokens": 9286
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 675
+            },
+            "patch": {
+              "calls": 1,
+              "prompt_tokens": 492
+            },
+            "repair": {
+              "calls": 2,
+              "prompt_tokens": 1292
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5094,
+              "prompt_tokens": 1199,
+              "output_tokens": 27,
+              "seconds": 3.17,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5431,
+              "prompt_tokens": 1287,
+              "output_tokens": 49,
+              "seconds": 1.8,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6546,
+              "prompt_tokens": 1590,
+              "output_tokens": 29,
+              "seconds": 2.81,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6892,
+              "prompt_tokens": 1672,
+              "output_tokens": 50,
+              "seconds": 2.55,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7257,
+              "prompt_tokens": 1771,
+              "output_tokens": 33,
+              "seconds": 2.82,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7279,
+              "prompt_tokens": 1767,
+              "output_tokens": 49,
+              "seconds": 2.64,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 2729,
+              "prompt_tokens": 675,
+              "output_tokens": 286,
+              "seconds": 12.25,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2160,
+              "prompt_tokens": 492,
+              "output_tokens": 77,
+              "seconds": 4.35,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 3329,
+              "prompt_tokens": 769,
+              "output_tokens": 87,
+              "seconds": 4.11,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 2308,
+              "prompt_tokens": 523,
+              "output_tokens": 71,
+              "seconds": 2.87,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 40.0
+      }
+    },
+    {
+      "issue": "hard_03",
+      "difficulty": "hard",
+      "title": "Proje üyesi olmayan kullanıcı @mention ile bildirim alıyor",
+      "metrics": {
+        "retrieval": false,
+        "diagnosis": false,
+        "valid_patch": false,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 4,
+        "prompt_tokens": 8142,
+        "seconds": 36.1,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "If someone mentions a user who is not a member of the project in a task comment, that user gets a notification containing the task title, leaking information about a project they cannot see. Only project members should be notified.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/hard_03",
+        "status": "patch_unavailable",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Identify where task comments are processed.",
+            "call": "search_code(query='COMMENT_ADDED')",
+            "observation": "6 matches for 'COMMENT_ADDED':\nevents.py:12: COMMENT_ADDED = \"comment.added\"\nactivity/log.py:25 (in ActivityLog.__init__): bus.subscribe(events.COMMENT_ADDED, self._on_comment_added)\nactivity/log.py:42 (in ActivityLog._on_comment_added): def _on_comment_added(self, comment_id, task_id, author_id, mentioned_ids):\ncomments/service.py:44 (in CommentService.add): self._bus.publish(events.COMMENT_ADDED, comment_id=comment.id, task_id=task.id,\nnotifications/dispatcher.py:16 (in NotificationDispatcher.__init__): bus.subscribe(events.COMMENT_ADDED, self.on_comment_added)\nnotifications/dispatcher.py:41 (in NotificationDispatcher.on_comment_added): def on_comment_added(self, comment_id, task_id, author_id, mentioned_ids):",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that handles comment added events.",
+            "call": "read_file(path='notifications/dispatcher.py', start_line=16, end_line=41)",
+            "observation": "notifications/dispatcher.py lines 16-41 of 48:\n16 |         bus.subscribe(events.COMMENT_ADDED, self.on_comment_added)\n17 | \n18 |     def _deliver(self, user_id, kind, message):\n19 |         \"\"\"Single exit point: deactivated accounts never receive anything.\"\"\"\n20 |         if not self._users.get(user_id).active:\n21 |             return None\n22 |         return self._notifications.notify(user_id, kind, message)\n23 | \n24 |     def on_task_assigned(self, task_id, assignee_id, actor_id):\n25 |         if assignee_id is None or assignee_id == actor_id:\n26 |             return  # nobody needs to be told about their own action\n27 |         task = self._tasks.get(task_id)\n28 |         self._deliver(assignee_id, models.TASK_ASSIGNED, f\"You were assigned '{task.title}'\")\n29 | \n30 |     def on_task_status_changed(self, task_id, old_status, new_status, actor_id):\n31 |         if new_status != Status.DONE:\n32 |             return\n33 |         task = self._tasks.get(task_id)\n34 |         if task.created_by != actor_id:\n35 |             self._deliver(task.created_by, models.TASK_COMPLETED, f\"'{task.title}' was completed\")\n36 | \n37 |     def on_member_added(self, project_id, user_id, actor_id):\n38 |         project = self._projects.get(project_id)\n39 |         self._deliver(user_id, models.PROJECT_INVITE, f\"You were added to project '{project.name}'\")\n40 | \n41 |     def on_comment_added(self, comment_id, task_id, author_id, mentioned_ids):",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Read the function that handles comment added events.",
+            "call": "read_file(path='notifications/dispatcher.py', start_line=25, end_line=41)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 4,
+            "thought": "Check if the notification is sent to the correct user.",
+            "call": "read_file(path='notifications/dispatcher.py', start_line=25, end_line=41)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that if a user who is not a member of the project mentions a user in a task comment, they receive a notification containing the task title, leaking information about a project they cannot see. This is not the expected behavior. The code checks if the user is active before delivering the notification, but it does not check if the user is a member of the project. The `on_comment_added` method does not have any checks to ensure that the mentioned user is a member of the project.",
+          "issue_summary": "Users who are not members of a project receive notifications containing task titles, leaking information about the project they cannot see.",
+          "root_cause": "The `on_comment_added` method does not check if the mentioned user is a member of the project. This allows users who are not members of the project to mention other users in task comments, which can lead to notifications containing task titles that leak information about projects they cannot see.",
+          "relevant_files": [
+            "notifications/dispatcher.py"
+          ],
+          "evidence": [
+            {
+              "file": "notifications/dispatcher.py",
+              "start_line": 41,
+              "end_line": 41,
+              "why": "The `on_comment_added` method does not have any checks to ensure that the mentioned user is a member of the project.",
+              "code": "41 |     def on_comment_added(self, comment_id, task_id, author_id, mentioned_ids):"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "the new code uses names that do not exist anywhere in the repository: _is_member_of_project. instead of '_is_member_of_project' maybe: list_for_project, _editable_project, test_new_member_gets_project_invite. Use only existing fields/functions or remove that code.",
+            "the new code uses names that do not exist anywhere in the repository: _is_member_of_project. instead of '_is_member_of_project' maybe: list_for_project, _editable_project, test_new_member_gets_project_invite. Use only existing fields/functions or remove that code."
+          ],
+          "applied": false
+        },
+        "files_read": [
+          "notifications/dispatcher.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 7,
+          "prompt_tokens": 8142,
+          "output_tokens": 717,
+          "max_prompt_tokens": 1791,
+          "seconds": 35.8,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 4,
+              "prompt_tokens": 6287
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 787
+            },
+            "patch": {
+              "calls": 2,
+              "prompt_tokens": 1068
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5200,
+              "prompt_tokens": 1218,
+              "output_tokens": 31,
+              "seconds": 3.33,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6360,
+              "prompt_tokens": 1516,
+              "output_tokens": 50,
+              "seconds": 2.53,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7220,
+              "prompt_tokens": 1762,
+              "output_tokens": 50,
+              "seconds": 3.63,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7318,
+              "prompt_tokens": 1791,
+              "output_tokens": 52,
+              "seconds": 3.0,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 3171,
+              "prompt_tokens": 787,
+              "output_tokens": 292,
+              "seconds": 13.05,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2154,
+              "prompt_tokens": 496,
+              "output_tokens": 121,
+              "seconds": 5.92,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2525,
+              "prompt_tokens": 572,
+              "output_tokens": 121,
+              "seconds": 4.37,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 36.1
+      }
+    },
+    {
+      "issue": "hard_04",
+      "difficulty": "hard",
+      "title": "Görev başka birine atanınca bildirim eski atanana gidiyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": true,
+        "valid_patch": false,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 6,
+        "prompt_tokens": 11669,
+        "seconds": 43.7,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "When a task is reassigned from Bob to Dave, Bob receives another 'You were assigned' notification and Dave receives nothing. The new assignee should be notified.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/hard_04",
+        "status": "patch_unavailable",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the task assignment logic.",
+            "call": "find_symbol(name='assign')",
+            "observation": "Definitions of 'assign':\ntasks/service.py:63-71  def TaskService.assign\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the 'assign' method in TaskService.",
+            "call": "read_file(path='tasks/service.py', start_line=63, end_line=71)",
+            "observation": "tasks/service.py lines 58-77 of 126:\n58 | \n59 |     def list_for_project(self, project_id, user_id):\n60 |         self._projects.get_for_user(project_id, user_id)\n61 |         return self._tasks.list(lambda t: t.project_id == project_id)\n62 | \n63 |     def assign(self, task_id, actor_id, assignee_id):\n64 |         task = self._tasks.get(task_id)\n65 |         project = self._editable_project(task.project_id, actor_id)\n66 |         self._check_assignee(project, assignee_id)\n67 |         self._bus.publish(events.TASK_ASSIGNED, task_id=task.id,\n68 |                           assignee_id=task.assignee_id, actor_id=actor_id)\n69 |         task.assignee_id = assignee_id\n70 |         self._touch(task)\n71 |         return task\n72 | \n73 |     def on_member_removed(self, project_id, user_id, actor_id):\n74 |         \"\"\"Someone left the project: their open tasks there become unassigned.\"\"\"\n75 |         for task in self._tasks.list(lambda t: t.project_id == project_id):\n76 |             if task.assignee_id == user_id:\n77 |                 task.assignee_id = None\n[widened from 63-71 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if the notification is being sent to the correct user.",
+            "call": "read_file(path='notifications/service.py', start_line=1, end_line=10)",
+            "observation": "notifications/service.py lines 1-20 of 52:\n 1 | \"\"\"In-app notifications with an email outbox.\"\"\"\n 2 | from common.errors import PermissionDeniedError\n 3 | from notifications.models import Notification\n 4 | from notifications.preferences import in_quiet_hours\n 5 | \n 6 | \n 7 | class NotificationService:\n 8 |     def __init__(self, repository, preferences, ids, clock):\n 9 |         self._notifications = repository\n10 |         self._preferences = preferences\n11 |         self._ids = ids\n12 |         self._clock = clock\n13 |         self.email_outbox = []  # (user_id, message) pairs waiting to be sent\n14 | \n15 |     def notify(self, user_id, kind, message):\n16 |         \"\"\"Create an in-app notification unless the user muted ``kind``.\n17 | \n18 |         Returns the notification, or ``None`` when it was muted.\n19 |         \"\"\"\n20 |         prefs = self._preferences.get(user_id)\n[widened from 1-10 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Check if the notification is being sent to the correct user.",
+            "call": "read_file(path='notifications/service.py', start_line=63, end_line=71)",
+            "observation": "ERROR: notifications/service.py has only 52 lines",
+            "status": "error"
+          },
+          {
+            "number": 5,
+            "thought": "Check if the notification is being sent to the correct user.",
+            "call": "read_file(path='notifications/service.py', start_line=63, end_line=71)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 6,
+            "thought": "Check if the notification is being sent to the correct user.",
+            "call": "read_file(path='notifications/service.py', start_line=63, end_line=71)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug occurs when a task is reassigned from Bob to Dave. The expected behavior is that Bob receives a 'You were assigned' notification, but Dave does not. The actual behavior is that both Bob and Dave receive 'You were assigned' notifications. The issue is in the `assign` method of the `tasks/service.py` file, specifically in the line `self._bus.publish(events.TASK_ASSIGNED, task_id=task.id, assignee_id=task.assignee_id, actor_id=actor_id)`. The `assignee_id` is being set to the new assignee's ID, but the notification is being published with the old assignee's ID. This causes both Bob and Dave to receive the notification.",
+          "issue_summary": "When a task is reassigned, both the old and new assignees receive a 'You were assigned' notification.",
+          "root_cause": "The `assign` method is setting the `assignee_id` to the new assignee's ID, but the notification is being published with the old assignee's ID. This causes both Bob and Dave to receive the notification.",
+          "relevant_files": [
+            "tasks/service.py",
+            "notifications/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "tasks/service.py",
+              "start_line": 67,
+              "end_line": 68,
+              "why": "The `assignee_id` is being set to the new assignee's ID, but the notification is being published with the old assignee's ID.",
+              "code": "67 |         self._bus.publish(events.TASK_ASSIGNED, task_id=task.id,\n68 |                           assignee_id=task.assignee_id, actor_id=actor_id)"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "tasks/service.py: old_text was not found ",
+            "tasks/service.py: old_text occurs 4 times; include more context"
+          ],
+          "applied": false
+        },
+        "files_read": [
+          "tasks/service.py",
+          "notifications/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 9,
+          "prompt_tokens": 11669,
+          "output_tokens": 823,
+          "max_prompt_tokens": 1914,
+          "seconds": 43.5,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 6,
+              "prompt_tokens": 9740
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 901
+            },
+            "patch": {
+              "calls": 2,
+              "prompt_tokens": 1028
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5130,
+              "prompt_tokens": 1207,
+              "output_tokens": 27,
+              "seconds": 3.15,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5465,
+              "prompt_tokens": 1291,
+              "output_tokens": 49,
+              "seconds": 1.85,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6531,
+              "prompt_tokens": 1589,
+              "output_tokens": 50,
+              "seconds": 3.53,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7539,
+              "prompt_tokens": 1852,
+              "output_tokens": 51,
+              "seconds": 3.46,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7666,
+              "prompt_tokens": 1887,
+              "output_tokens": 51,
+              "seconds": 3.66,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7761,
+              "prompt_tokens": 1914,
+              "output_tokens": 51,
+              "seconds": 3.89,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 3589,
+              "prompt_tokens": 901,
+              "output_tokens": 335,
+              "seconds": 15.17,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2082,
+              "prompt_tokens": 499,
+              "output_tokens": 141,
+              "seconds": 6.47,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2230,
+              "prompt_tokens": 529,
+              "output_tokens": 68,
+              "seconds": 2.32,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 43.7
+      }
+    },
+    {
+      "issue": "hard_05",
+      "difficulty": "hard",
+      "title": "Mention edilen atanan kişi iki bildirim alıyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": false,
+        "valid_patch": true,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 4,
+        "prompt_tokens": 8252,
+        "seconds": 37.5,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "When a comment mentions the task's assignee, the assignee receives two notifications (a mention and a 'new comment' notification). They should only get the mention.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/hard_05",
+        "status": "tests_failed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function that handles task assignment.",
+            "call": "find_symbol(name='on_task_assigned')",
+            "observation": "Definitions of 'on_task_assigned':\nnotifications/dispatcher.py:24-28  def NotificationDispatcher.on_task_assigned\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that handles task assignment notifications.",
+            "call": "read_file(path='notifications/dispatcher.py', start_line=24, end_line=28)",
+            "observation": "notifications/dispatcher.py lines 17-36 of 48:\n17 | \n18 |     def _deliver(self, user_id, kind, message):\n19 |         \"\"\"Single exit point: deactivated accounts never receive anything.\"\"\"\n20 |         if not self._users.get(user_id).active:\n21 |             return None\n22 |         return self._notifications.notify(user_id, kind, message)\n23 | \n24 |     def on_task_assigned(self, task_id, assignee_id, actor_id):\n25 |         if assignee_id is None or assignee_id == actor_id:\n26 |             return  # nobody needs to be told about their own action\n27 |         task = self._tasks.get(task_id)\n28 |         self._deliver(assignee_id, models.TASK_ASSIGNED, f\"You were assigned '{task.title}'\")\n29 | \n30 |     def on_task_status_changed(self, task_id, old_status, new_status, actor_id):\n31 |         if new_status != Status.DONE:\n32 |             return\n33 |         task = self._tasks.get(task_id)\n34 |         if task.created_by != actor_id:\n35 |             self._deliver(task.created_by, models.TASK_COMPLETED, f\"'{task.title}' was completed\")\n36 | \n[widened from 24-28 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if the assignee is the same as the actor.",
+            "call": "read_file(path='notifications/dispatcher.py', start_line=25, end_line=27)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 4,
+            "thought": "Check if the assignee is the same as the actor.",
+            "call": "read_file(path='notifications/dispatcher.py', start_line=25, end_line=27)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that when a comment mentions the task's assignee, the assignee receives two notifications (a mention and a 'new comment' notification). However, the code only delivers a mention notification when the task is assigned to a different user than the actor. If the assignee is the same as the actor, no notifications are delivered.",
+          "issue_summary": "Assignee receives two notifications when a comment mentions the task's assignee, but should only receive one mention notification.",
+          "root_cause": "The bug is caused by the condition `if assignee_id is None or assignee_id == actor_id:` in the `on_task_assigned` method. This condition prevents the mention notification from being delivered when the assignee is the same as the actor.",
+          "relevant_files": [
+            "notifications/dispatcher.py"
+          ],
+          "evidence": [
+            {
+              "file": "notifications/dispatcher.py",
+              "start_line": 25,
+              "end_line": 26,
+              "why": "This condition prevents the mention notification from being delivered when the assignee is the same as the actor.",
+              "code": "25 |         if assignee_id is None or assignee_id == actor_id:\n26 |             return  # nobody needs to be told about their own action"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "notifications/dispatcher.py: old_text was not found ",
+            "notifications/dispatcher.py would not be valid Python: unindent does not match any outer indentation level (line 27)"
+          ],
+          "applied": true,
+          "plan": "Modify the condition to check if the assignee is not the same as the actor before delivering the mention notification.",
+          "diff": "--- a/notifications/dispatcher.py\n+++ b/notifications/dispatcher.py\n@@ -22,7 +22,7 @@\n         return self._notifications.notify(user_id, kind, message)\n \n     def on_task_assigned(self, task_id, assignee_id, actor_id):\n-        if assignee_id is None or assignee_id == actor_id:\n+        if assignee_id is not None and assignee_id != actor_id:\n             return  # nobody needs to be told about their own action\n         task = self._tasks.get(task_id)\n         self._deliver(assignee_id, models.TASK_ASSIGNED, f\"You were assigned '{task.title}'\")\n",
+          "changed_lines": 2,
+          "plans": [
+            "Modify the condition to check if the assignee is not the same as the actor before delivering the mention notification."
+          ],
+          "rolled_back": true
+        },
+        "tests": {
+          "passed": false,
+          "repairs": 1,
+          "runs": [
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_comments.py::test_assignee_hears_about_comments_only_once",
+                "tests/test_notifications.py::test_assignment_notifies_assignee",
+                "tests/test_notifications.py::test_self_assignment_does_not_notify",
+                "tests/test_notifications.py::test_email_skipped_during_quiet_hours",
+                "tests/test_notifications.py::test_reassignment_notifies_the_new_assignee"
+              ],
+              "summary": "5 failed, 67 passed in 0.05s",
+              "brief": "tests/test_comments.py:39: AssertionError: assert 'task_commented' not in ['project_invite', 'mentioned', 'task_commented']\ntests/test_notifications.py:11: ValueError: not enough values to unpack (expected 1, got 0)\ntests/test_notifications.py:17: AssertionError: assert ['project_inv...ask_assigned'] == ['project_invite']\ntests/test_notifications.py:62: assert [] == [('user-2', \"...gned 'Loud'\")]\ntests/test_notifications.py:77: AssertionError: assert 0 == 1\nFAILED tests/test_comments.py::test_assignee_hears_about_comments_only_once\nFAILED tests/test_notifications.py::test_assignment_notifies_assignee - Value...\nFAILED tests/test_notifications.py::test_self_assignment_does_not_notify - As...\nFAILED tests/test_notifications.py::test_email_skipped_during_quiet_hours - a...\nFAILED tests/test_notifications.py::test_reassignment_notifies_the_new_assignee",
+              "timed_out": false
+            }
+          ]
+        },
+        "files_read": [
+          "notifications/dispatcher.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 8,
+          "prompt_tokens": 8252,
+          "output_tokens": 763,
+          "max_prompt_tokens": 1626,
+          "seconds": 37.1,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 4,
+              "prompt_tokens": 5739
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 675
+            },
+            "patch": {
+              "calls": 1,
+              "prompt_tokens": 460
+            },
+            "repair": {
+              "calls": 2,
+              "prompt_tokens": 1378
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5133,
+              "prompt_tokens": 1208,
+              "output_tokens": 31,
+              "seconds": 3.49,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5572,
+              "prompt_tokens": 1308,
+              "output_tokens": 50,
+              "seconds": 1.96,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6602,
+              "prompt_tokens": 1597,
+              "output_tokens": 53,
+              "seconds": 3.49,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6700,
+              "prompt_tokens": 1626,
+              "output_tokens": 53,
+              "seconds": 2.73,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 2715,
+              "prompt_tokens": 675,
+              "output_tokens": 250,
+              "seconds": 10.97,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 1973,
+              "prompt_tokens": 460,
+              "output_tokens": 94,
+              "seconds": 4.38,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 3781,
+              "prompt_tokens": 885,
+              "output_tokens": 137,
+              "seconds": 6.65,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 2137,
+              "prompt_tokens": 493,
+              "output_tokens": 95,
+              "seconds": 3.39,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 37.5
+      }
+    },
+    {
+      "issue": "medium_01",
+      "difficulty": "medium",
+      "title": "Büyük harfle yazılan @mention bildirim göndermiyor",
+      "metrics": {
+        "retrieval": false,
+        "diagnosis": false,
+        "valid_patch": false,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 6,
+        "prompt_tokens": 11137,
+        "seconds": 39.6,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "Mentioning a user in a task comment with different capitalisation, e.g. '@Bob' instead of '@bob', does not notify them and they are not recorded as mentioned. Mentions should be case-insensitive.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/medium_01",
+        "status": "patch_unavailable",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Identify where mentions are processed.",
+            "call": "search_code(query='extract_mentions')",
+            "observation": "6 matches for 'extract_mentions':\ncomments/mentions.py:12 (in extract_mentions): def extract_mentions(text):\ncomments/service.py:5: from comments.mentions import extract_mentions\ncomments/service.py:27 (in CommentService._resolve_mentions): for handle in extract_mentions(body):\ntests/test_comments.py:3: from comments.mentions import extract_mentions\ntests/test_comments.py:8 (in test_extract_mentions_keeps_order_and_ignores_emails): def test_extract_mentions_keeps_order_and_ignores_emails():\ntests/test_comments.py:10 (in test_extract_mentions_keeps_order_and_ignores_emails): assert extract_mentions(text) == [\"Alice\", \"bob.smith\"]",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that extracts mentions.",
+            "call": "read_file(path='comments/mentions.py', start_line=12, end_line=27)",
+            "observation": "comments/mentions.py lines 6-19 of 19:\n 6 | import re\n 7 | \n 8 | # Not preceded by a word character or '@' (so \"a@b.com\" is not a mention).\n 9 | MENTION_PATTERN = re.compile(r\"(?<![\\w@])@([A-Za-z0-9_.]{2,30})\")\n10 | \n11 | \n12 | def extract_mentions(text):\n13 |     seen, result = set(), []\n14 |     for raw in MENTION_PATTERN.findall(text or \"\"):\n15 |         handle = raw.rstrip(\".\")  # \"@bob.\" at the end of a sentence\n16 |         if handle.lower() not in seen:\n17 |             seen.add(handle.lower())\n18 |             result.append(handle)\n19 |     return result\n[widened from 12-19 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if the function is used in the project.",
+            "call": "search_code(query='extract_mentions')",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 4,
+            "thought": "Read the function that uses extract_mentions.",
+            "call": "read_file(path='comments/service.py', start_line=5, end_line=27)",
+            "observation": "comments/service.py lines 5-27 of 72:\n 5 | from comments.mentions import extract_mentions\n 6 | from comments.models import Comment\n 7 | from projects import permissions\n 8 | \n 9 | \n10 | class CommentService:\n11 |     def __init__(self, repository, tasks, projects, users, ids, clock, bus):\n12 |         self._comments = repository\n13 |         self._tasks = tasks\n14 |         self._projects = projects\n15 |         self._users = users\n16 |         self._ids = ids\n17 |         self._clock = clock\n18 |         self._bus = bus\n19 | \n20 |     def _project_of(self, task_id):\n21 |         task = self._tasks.get(task_id)\n22 |         return task, self._projects.get(task.project_id)\n23 | \n24 |     def _resolve_mentions(self, project, author_id, body):\n25 |         \"\"\"Users that a comment may notify: existing project members, not the author.\"\"\"\n26 |         mentioned = []\n27 |         for handle in extract_mentions(body):",
+            "status": "ok"
+          },
+          {
+            "number": 5,
+            "thought": "Check the logic for resolving mentions.",
+            "call": "read_file(path='comments/service.py', start_line=25, end_line=27)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 6,
+            "thought": "Check the logic for resolving mentions.",
+            "call": "read_file(path='comments/service.py', start_line=25, end_line=27)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug occurs when a user is mentioned in a task comment with different capitalization, e.g. '@Bob' instead of '@bob'. The code extracts mentions using a regular expression that matches '@' followed by a word character or underscore, but does not handle case insensitivity. This means that '@Bob' and '@bob' are treated as different mentions, and '@Bob' is not recorded as mentioned.",
+          "issue_summary": "Mentions are not case-insensitive in the code.",
+          "root_cause": "The regular expression used to extract mentions does not include a case-insensitive flag, which means it treats '@Bob' and '@bob' as different mentions.",
+          "relevant_files": [
+            "comments/mentions.py",
+            "comments/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "comments/mentions.py",
+              "start_line": 15,
+              "end_line": 16,
+              "why": "The line `handle = raw.rstrip(\".\")` is used to remove a trailing period from the mention handle, but it does not handle case insensitivity.",
+              "code": "15 |         handle = raw.rstrip(\".\")  # \"@bob.\" at the end of a sentence\n16 |         if handle.lower() not in seen:"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "comments/mentions.py: old_text was not found ",
+            "comments/mentions.py: old_text was not found "
+          ],
+          "applied": false
+        },
+        "files_read": [
+          "comments/mentions.py",
+          "comments/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 9,
+          "prompt_tokens": 11137,
+          "output_tokens": 781,
+          "max_prompt_tokens": 1856,
+          "seconds": 39.4,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 6,
+              "prompt_tokens": 9483
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 829
+            },
+            "patch": {
+              "calls": 2,
+              "prompt_tokens": 825
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5164,
+              "prompt_tokens": 1219,
+              "output_tokens": 29,
+              "seconds": 3.06,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6210,
+              "prompt_tokens": 1450,
+              "output_tokens": 47,
+              "seconds": 2.24,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6260,
+              "prompt_tokens": 1529,
+              "output_tokens": 32,
+              "seconds": 2.4,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6590,
+              "prompt_tokens": 1600,
+              "output_tokens": 46,
+              "seconds": 2.15,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7359,
+              "prompt_tokens": 1829,
+              "output_tokens": 46,
+              "seconds": 3.35,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7449,
+              "prompt_tokens": 1856,
+              "output_tokens": 46,
+              "seconds": 3.52,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 3169,
+              "prompt_tokens": 829,
+              "output_tokens": 245,
+              "seconds": 11.26,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 1582,
+              "prompt_tokens": 397,
+              "output_tokens": 145,
+              "seconds": 6.25,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 1734,
+              "prompt_tokens": 428,
+              "output_tokens": 145,
+              "seconds": 5.15,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 39.6
+      }
+    },
+    {
+      "issue": "medium_02",
+      "difficulty": "medium",
+      "title": "İş yükü raporu tamamlanmış görevleri de sayıyor",
+      "metrics": {
+        "retrieval": false,
+        "diagnosis": false,
+        "valid_patch": null,
+        "tests_pass": null,
+        "autonomous": null,
+        "steps": 12,
+        "prompt_tokens": 25278,
+        "seconds": 65.0,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "The workload report counts tasks that are already DONE, so people who finished their work still look busy. Only open tasks should be counted.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/medium_02",
+        "status": "insufficient_evidence",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function that counts tasks.",
+            "call": "find_symbol(name='count_tasks')",
+            "observation": "No definition of 'count_tasks' found (it may be an attribute or field). Use search_code to find where it is used.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Search for 'count_tasks' to find where it is used.",
+            "call": "search_code(query='count_tasks')",
+            "observation": "No matches for 'count_tasks'. Try a shorter or different name.",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if 'count_tasks' is a typo or a different function name.",
+            "call": "search_code(query='count_tasks')",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 4,
+            "thought": "Read the function that counts tasks.",
+            "call": "read_file(path='app.py', start_line=12, end_line=20)",
+            "observation": "app.py lines 7-26 of 52:\n 7 | from common.ids import IdGenerator\n 8 | from events import EventBus\n 9 | from notifications.dispatcher import NotificationDispatcher\n10 | from notifications.preferences import PreferenceStore\n11 | from notifications.service import NotificationService\n12 | from projects.service import ProjectService\n13 | from reports.stats import ProjectReports\n14 | from storage.memory import InMemoryRepository\n15 | from tasks.service import TaskService\n16 | from users.service import UserService\n17 | \n18 | \n19 | @dataclass\n20 | class App:\n21 |     clock: object\n22 |     bus: EventBus\n23 |     users: UserService\n24 |     projects: ProjectService\n25 |     tasks: TaskService\n26 |     comments: CommentService\n[widened from 12-20 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 5,
+            "thought": "Check if 'count_tasks' is used in the 'App' class.",
+            "call": "search_code(query='count_tasks')",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 6,
+            "thought": "Read the ActivityLog class to find where count_tasks is used.",
+            "call": "read_file(path='activity/log.py', start_line=1, end_line=50)",
+            "observation": "activity/log.py lines 1-49 of 49:\n 1 | \"\"\"An audit trail: who did what, when. Built only from published events.\"\"\"\n 2 | from dataclasses import dataclass\n 3 | from datetime import datetime\n 4 | \n 5 | import events\n 6 | \n 7 | \n 8 | @dataclass\n 9 | class ActivityEntry:\n10 |     at: datetime\n11 |     kind: str\n12 |     actor_id: str\n13 |     subject_id: str  # task or project the entry is about\n14 |     detail: str\n15 | \n16 | \n17 | class ActivityLog:\n18 |     def __init__(self, bus, clock):\n19 |         self._clock = clock\n20 |         self.entries = []\n21 |         bus.subscribe(events.TASK_STATUS_CHANGED, self._on_status_changed)\n22 |         bus.subscribe(events.TASK_ASSIGNED, self._on_assigned)\n23 |         bus.subscribe(events.PROJECT_MEMBER_ADDED, self._on_member_added)\n24 |         bus.subscribe(events.PROJECT_MEMBER_REMOVED, self._on_member_removed)\n25 |         bus.subscribe(events.COMMENT_ADDED, self._on_comment_added)\n26 | \n27 |     def _record(self, kind, actor_id, subject_id, detail):\n28 |         self.entries.append(ActivityEntry(self._clock.now(), kind, actor_id, subject_id, detail))\n29 | \n30 |     def _on_status_changed(self, task_id, old_status, new_status, actor_id):\n31 |         self._record(\"status\", actor_id, task_id, f\"{old_status.value} -> {new_status.value}\")\n32 | \n33 |     def _on_assigned(self, task_id, assignee_id, actor_id):\n34 |         self._record(\"assigned\", actor_id, task_id, f\"assigned to {assignee_id}\")\n35 | \n36 |     def _on_member_added(self, project_id, user_id, actor_id):\n37 |         self._record(\"member_added\", actor_id, project_id, f\"added {user_id}\")\n38 | \n39 |     def _on_member_removed(self, project_id, user_id, actor_id):\n40 |         self._record(\"member_removed\", actor_id, project_id, f\"removed {user_id}\")\n41 | \n42 |     def _on_comment_added(self, comment_id, task_id, author_id, mentioned_ids):\n43 |         self._record(\"comment\", author_id, task_id, f\"comment {comment_id}\")\n44 | \n45 |     def for_subject(self, subject_id):\n46 |         return [entry for entry in self.entries if entry.subject_id == subject_id]\n47 | \n48 |     def recent(self, limit=20):\n49 |         return list(reversed(self.entries))[:limit]",
+            "status": "ok"
+          },
+          {
+            "number": 7,
+            "thought": "Check if 'count_tasks' is used in the ActivityLog class.",
+            "call": "search_code(query='count_tasks')",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 8,
+            "thought": "Read the ActivityLog class to find where count_tasks is used.",
+            "call": "read_file(path='activity/log.py', start_line=1, end_line=50)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 9,
+            "thought": "Read the function that counts tasks.",
+            "call": "read_file(path='reports/stats.py', start_line=10, end_line=12)",
+            "observation": "reports/stats.py lines 2-21 of 42:\n 2 | from collections import Counter\n 3 | from dataclasses import dataclass\n 4 | \n 5 | from tasks.models import OPEN_STATUSES, Status\n 6 | \n 7 | \n 8 | @dataclass\n 9 | class Progress:\n10 |     total: int\n11 |     by_status: dict\n12 |     done: int\n13 | \n14 |     @property\n15 |     def percent_done(self):\n16 |         \"\"\"Whole-number percentage of tasks that are done (0 for an empty project).\"\"\"\n17 |         if self.total == 0:\n18 |             return 0\n19 |         return round(self.done * 100 / self.total)\n20 | \n21 | \n[widened from 10-12 to give context]\n[Used elsewhere in this file: Progress at line 31 (in ProjectReports.progress)]",
+            "status": "ok"
+          },
+          {
+            "number": 10,
+            "thought": "Read the lines that define 'count_open_tasks'.",
+            "call": "read_file(path='reports/stats.py', start_line=1, end_line=20)",
+            "observation": "reports/stats.py lines 1-20 of 42:\n 1 | \"\"\"Read-only project reports built on top of the task service.\"\"\"\n 2 | from collections import Counter\n 3 | from dataclasses import dataclass\n 4 | \n 5 | from tasks.models import OPEN_STATUSES, Status\n 6 | \n 7 | \n 8 | @dataclass\n 9 | class Progress:\n10 |     total: int\n11 |     by_status: dict\n12 |     done: int\n13 | \n14 |     @property\n15 |     def percent_done(self):\n16 |         \"\"\"Whole-number percentage of tasks that are done (0 for an empty project).\"\"\"\n17 |         if self.total == 0:\n18 |             return 0\n19 |         return round(self.done * 100 / self.total)\n20 | \n[Used elsewhere in this file: Progress at line 31 (in ProjectReports.progress)]",
+            "status": "ok"
+          },
+          {
+            "number": 11,
+            "thought": "Read the function that counts tasks.",
+            "call": "read_file(path='reports/stats.py', start_line=1, end_line=20)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 12,
+            "thought": "Read the function that counts tasks.",
+            "call": "read_file(path='reports/stats.py', start_line=1, end_line=20)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 2,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis_problems": [
+          "root_cause mentions 'count_open_tasks', which does not exist in the code"
+        ],
+        "files_read": [
+          "app.py",
+          "activity/log.py",
+          "reports/stats.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 14,
+          "prompt_tokens": 25278,
+          "output_tokens": 954,
+          "max_prompt_tokens": 2605,
+          "seconds": 64.6,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 12,
+              "prompt_tokens": 22654
+            },
+            "diagnosis": {
+              "calls": 2,
+              "prompt_tokens": 2624
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5110,
+              "prompt_tokens": 1201,
+              "output_tokens": 29,
+              "seconds": 3.28,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5444,
+              "prompt_tokens": 1279,
+              "output_tokens": 35,
+              "seconds": 1.29,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5496,
+              "prompt_tokens": 1290,
+              "output_tokens": 37,
+              "seconds": 1.99,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5701,
+              "prompt_tokens": 1337,
+              "output_tokens": 45,
+              "seconds": 1.73,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6312,
+              "prompt_tokens": 1507,
+              "output_tokens": 37,
+              "seconds": 2.07,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6632,
+              "prompt_tokens": 1578,
+              "output_tokens": 51,
+              "seconds": 2.47,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 8666,
+              "prompt_tokens": 2189,
+              "output_tokens": 36,
+              "seconds": 4.21,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 8986,
+              "prompt_tokens": 2260,
+              "output_tokens": 51,
+              "seconds": 4.46,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 4541,
+              "prompt_tokens": 1193,
+              "output_tokens": 239,
+              "seconds": 12.33,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 9147,
+              "prompt_tokens": 2309,
+              "output_tokens": 46,
+              "seconds": 4.5,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 9814,
+              "prompt_tokens": 2521,
+              "output_tokens": 49,
+              "seconds": 5.38,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 10006,
+              "prompt_tokens": 2578,
+              "output_tokens": 45,
+              "seconds": 5.42,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 10093,
+              "prompt_tokens": 2605,
+              "output_tokens": 45,
+              "seconds": 5.4,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 5372,
+              "prompt_tokens": 1431,
+              "output_tokens": 209,
+              "seconds": 10.11,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 65.0
+      }
+    },
+    {
+      "issue": "medium_03",
+      "difficulty": "medium",
+      "title": "Sessiz saatlerde e-posta gönderilmeye devam ediyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": false,
+        "valid_patch": true,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 6,
+        "prompt_tokens": 14624,
+        "seconds": 64.1,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "Users who configure quiet hours still receive emails during those hours, and receive none outside them. For example quiet hours 8-10 should block emails at 9:00 and allow them at 11:00.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/medium_03",
+        "status": "tests_failed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Identify where quiet hours are configured and applied.",
+            "call": "search_code(query='quiet_hours')",
+            "observation": "16 matches for 'quiet_hours':\nnotifications/preferences.py:13 (in Preferences): quiet_hours: Optional[Tuple[int, int]] = None\nnotifications/preferences.py:16 (in in_quiet_hours): def in_quiet_hours(preferences, hour):\nnotifications/preferences.py:17 (in in_quiet_hours): if preferences.quiet_hours is None:\nnotifications/preferences.py:19 (in in_quiet_hours): start, end = preferences.quiet_hours\nnotifications/preferences.py:41 (in PreferenceStore.set_quiet_hours): def set_quiet_hours(self, user_id, start, end):\nnotifications/preferences.py:45 (in PreferenceStore.set_quiet_hours): self.get(user_id).quiet_hours = (end, start)\nnotifications/service.py:4: from notifications.preferences import in_quiet_hours\nnotifications/service.py:27 (in NotificationService.notify): if prefs.email_enabled and not in_quiet_hours(prefs, now.hour):\ntests/test_notifications.py:5: from notifications.preferences import Preferences, in_quiet_hours\ntests/test_notifications.py:55 (in test_email_skipped_during_quiet_hours): def test_email_skipped_during_quiet_hours(app, project, alice, bob, clock):\ntests/test_notifications.py:57 (in test_email_skipped_during_quiet_hours): app.preferences.set_quiet_hours(bob.id, 8, 10)  # clock is at 09:00\ntests/test_notifications.py:66 (in test_quiet_hours_wrap_past_midnight): def test_quiet_hours_wrap_past_midnight(hour, expected):\ntests/test_notifications.py:67 (in test_quiet_hours_wrap_past_midnight): assert in_quiet_hours(Preferences(quiet_hours=(22, 7)), hour) is expected\ntests/test_notifications.py:92 (in test_quiet_hours_are_stored_as_given): def test_quiet_hours_are_stored_as_given(app, bob):\ntests/test_notifications.py:93 (in test_quiet_hours_are_stored_as_given): app.preferences.set_quiet_hours(bob.id, 22, 7)\ntests/test_notifications.py:94 (in test_quiet_hours_are_stored_as_given): assert app.preferences.get(bob.id).quiet_hours == (22, 7)",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that uses quiet_hours.",
+            "call": "read_file(path='notifications/preferences.py', start_line=16, end_line=27)",
+            "observation": "notifications/preferences.py lines 12-31 of 45:\n12 |     # (start_hour, end_hour) in UTC; may wrap past midnight, e.g. (22, 7).\n13 |     quiet_hours: Optional[Tuple[int, int]] = None\n14 | \n15 | \n16 | def in_quiet_hours(preferences, hour):\n17 |     if preferences.quiet_hours is None:\n18 |         return False\n19 |     start, end = preferences.quiet_hours\n20 |     if start <= end:\n21 |         return start <= hour < end\n22 |     return hour >= start or hour < end\n23 | \n24 | \n25 | class PreferenceStore:\n26 |     def __init__(self):\n27 |         self._preferences = {}\n28 | \n29 |     def get(self, user_id):\n30 |         return self._preferences.setdefault(user_id, Preferences())\n31 | \n[widened from 16-27 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if quiet hours are applied in the notification service.",
+            "call": "find_symbol(name='NotificationService')",
+            "observation": "Definitions of 'NotificationService':\nnotifications/service.py:7-52  class NotificationService\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Read the NotificationService class to understand how notifications are dispatched.",
+            "call": "read_file(path='notifications/service.py', start_line=7, end_line=52)",
+            "observation": "notifications/service.py lines 7-52 of 52:\n 7 | class NotificationService:\n 8 |     def __init__(self, repository, preferences, ids, clock):\n 9 |         self._notifications = repository\n10 |         self._preferences = preferences\n11 |         self._ids = ids\n12 |         self._clock = clock\n13 |         self.email_outbox = []  # (user_id, message) pairs waiting to be sent\n14 | \n15 |     def notify(self, user_id, kind, message):\n16 |         \"\"\"Create an in-app notification unless the user muted ``kind``.\n17 | \n18 |         Returns the notification, or ``None`` when it was muted.\n19 |         \"\"\"\n20 |         prefs = self._preferences.get(user_id)\n21 |         if kind in prefs.muted_kinds:\n22 |             return None\n23 |         now = self._clock.now()\n24 |         notification = Notification(id=self._ids.next(), user_id=user_id, kind=kind,\n25 |                                     message=message, created_at=now)\n26 |         self._notifications.add(notification)\n27 |         if prefs.email_enabled and not in_quiet_hours(prefs, now.hour):\n28 |             self.email_outbox.append((user_id, message))\n29 |         return notification\n30 | \n31 |     def for_user(self, user_id):\n32 |         \"\"\"All notifications of a user, newest first.\"\"\"\n33 |         items = self._notifications.list(lambda n: n.user_id == user_id)\n34 |         return sorted(items, key=lambda n: n.created_at, reverse=True)\n35 | \n36 |     def unread(self, user_id):\n37 |         return [n for n in self.for_user(user_id) if not n.read]\n38 | \n39 |     def unread_count(self, user_id):\n40 |         return len(self.unread(user_id))\n41 | \n42 |     def mark_read(self, notification_id, user_id):\n43 |         notification = self._notifications.get(notification_id)\n44 |         if notification.user_id != user_id:\n45 |             raise PermissionDeniedError(\"cannot read another user's notification\")\n46 |         notification.read = True\n47 |         return self._notifications.update(notification)\n48 | \n49 |     def mark_all_read(self, user_id):\n50 |         for notification in self.unread(user_id):\n51 |             notification.read = True\n52 |             self._notifications.update(notification)",
+            "status": "ok"
+          },
+          {
+            "number": 5,
+            "thought": "Check if the notification service is called with the correct quiet hours.",
+            "call": "read_file(path='notifications/service.py', start_line=20, end_line=22)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 6,
+            "thought": "Check if the notification service is called with the correct quiet hours.",
+            "call": "read_file(path='notifications/service.py', start_line=20, end_line=22)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that users who configure quiet hours still receive emails during those hours, and receive none outside them. However, the code in `notifications/service.py` does not correctly implement the quiet hours logic. Specifically, the `in_quiet_hours` function checks if the current hour is within the quiet hours range, but it does not handle the case where the quiet hours wrap around midnight. This results in incorrect email delivery.",
+          "issue_summary": "Users configured quiet hours still receive emails during those hours, and receive none outside them.",
+          "root_cause": "The `in_quiet_hours` function does not correctly handle quiet hours that wrap around midnight, leading to incorrect email delivery.",
+          "relevant_files": [
+            "notifications/preferences.py",
+            "notifications/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "notifications/preferences.py",
+              "start_line": 20,
+              "end_line": 21,
+              "why": "The `in_quiet_hours` function checks if the current hour is within the quiet hours range, but it does not handle the case where the quiet hours wrap around midnight.",
+              "code": "20 |     if start <= end:\n21 |         return start <= hour < end"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "notifications/preferences.py: old_text was not found ",
+            "notifications/preferences.py: old_text was not found "
+          ],
+          "applied": true,
+          "plan": "Modify the `in_quiet_hours` function to correctly handle quiet hours that wrap around midnight by adjusting the comparison logic.",
+          "diff": "--- a/notifications/preferences.py\n+++ b/notifications/preferences.py\n@@ -17,7 +17,7 @@\n     if preferences.quiet_hours is None:\n         return False\n     start, end = preferences.quiet_hours\n-    if start <= end:\n+    if start <= end or (start > end and hour >= start) or (hour < end and hour >= start) or (start > end and hour < end):\n         return start <= hour < end\n     return hour >= start or hour < end\n \n",
+          "changed_lines": 6,
+          "plans": [
+            "Modify the `in_quiet_hours` function to correctly handle quiet hours that wrap around midnight by adjusting the comparison logic.",
+            "Modify the `in_quiet_hours` function to handle quiet hours that wrap around midnight by checking if the current hour is within the quiet hours range or if it is after the end hour and before the start hour.",
+            "Modify the `in_quiet_hours` function to correctly handle quiet hours that wrap around midnight by adjusting the logic to account for the possibility of midnight crossing the hour range."
+          ],
+          "rolled_back": true
+        },
+        "tests": {
+          "passed": false,
+          "repairs": 2,
+          "runs": [
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_notifications.py::test_email_skipped_during_quiet_hours",
+                "tests/test_notifications.py::test_quiet_hours_wrap_past_midnight[23-True]",
+                "tests/test_notifications.py::test_quiet_hours_are_stored_as_given"
+              ],
+              "summary": "3 failed, 69 passed in 0.07s",
+              "brief": "tests/test_notifications.py:59: assert [('user-2', \"...ed 'Silent'\")] == []\ntests/test_notifications.py:67: assert False is True\ntests/test_notifications.py:94: assert (7, 22) == (22, 7)\nFAILED tests/test_notifications.py::test_email_skipped_during_quiet_hours - a...\nFAILED tests/test_notifications.py::test_quiet_hours_wrap_past_midnight[23-True]\nFAILED tests/test_notifications.py::test_quiet_hours_are_stored_as_given - as...",
+              "timed_out": false
+            },
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_notifications.py::test_email_skipped_during_quiet_hours",
+                "tests/test_notifications.py::test_quiet_hours_wrap_past_midnight[23-True]",
+                "tests/test_notifications.py::test_quiet_hours_are_stored_as_given"
+              ],
+              "summary": "3 failed, 69 passed in 0.05s",
+              "brief": "tests/test_notifications.py:59: assert [('user-2', \"...ed 'Silent'\")] == []\ntests/test_notifications.py:67: assert False is True\ntests/test_notifications.py:94: assert (7, 22) == (22, 7)\nFAILED tests/test_notifications.py::test_email_skipped_during_quiet_hours - a...\nFAILED tests/test_notifications.py::test_quiet_hours_wrap_past_midnight[23-True]\nFAILED tests/test_notifications.py::test_quiet_hours_are_stored_as_given - as...",
+              "timed_out": false
+            },
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_notifications.py::test_email_skipped_during_quiet_hours",
+                "tests/test_notifications.py::test_quiet_hours_wrap_past_midnight[23-True]",
+                "tests/test_notifications.py::test_quiet_hours_wrap_past_midnight[2-True]",
+                "tests/test_notifications.py::test_quiet_hours_are_stored_as_given"
+              ],
+              "summary": "4 failed, 68 passed in 0.05s",
+              "brief": "tests/test_notifications.py:59: assert [('user-2', \"...ed 'Silent'\")] == []\ntests/test_notifications.py:67: assert False is True\ntests/test_notifications.py:67: assert False is True\ntests/test_notifications.py:94: assert (7, 22) == (22, 7)\nFAILED tests/test_notifications.py::test_email_skipped_during_quiet_hours - a...\nFAILED tests/test_notifications.py::test_quiet_hours_wrap_past_midnight[23-True]\nFAILED tests/test_notifications.py::test_quiet_hours_wrap_past_midnight[2-True]\nFAILED tests/test_notifications.py::test_quiet_hours_are_stored_as_given - as...",
+              "timed_out": false
+            }
+          ]
+        },
+        "files_read": [
+          "notifications/preferences.py",
+          "notifications/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 12,
+          "prompt_tokens": 14624,
+          "output_tokens": 1068,
+          "max_prompt_tokens": 2234,
+          "seconds": 63.0,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 6,
+              "prompt_tokens": 10704
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 1165
+            },
+            "patch": {
+              "calls": 1,
+              "prompt_tokens": 409
+            },
+            "repair": {
+              "calls": 4,
+              "prompt_tokens": 2346
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5154,
+              "prompt_tokens": 1221,
+              "output_tokens": 32,
+              "seconds": 5.07,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7465,
+              "prompt_tokens": 1806,
+              "output_tokens": 47,
+              "seconds": 3.96,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6410,
+              "prompt_tokens": 1578,
+              "output_tokens": 33,
+              "seconds": 2.45,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6800,
+              "prompt_tokens": 1658,
+              "output_tokens": 50,
+              "seconds": 2.73,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 8912,
+              "prompt_tokens": 2207,
+              "output_tokens": 52,
+              "seconds": 4.87,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 9007,
+              "prompt_tokens": 2234,
+              "output_tokens": 52,
+              "seconds": 5.01,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 4544,
+              "prompt_tokens": 1165,
+              "output_tokens": 250,
+              "seconds": 14.45,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 1660,
+              "prompt_tokens": 409,
+              "output_tokens": 85,
+              "seconds": 4.69,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 2866,
+              "prompt_tokens": 710,
+              "output_tokens": 99,
+              "seconds": 4.95,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 1855,
+              "prompt_tokens": 448,
+              "output_tokens": 124,
+              "seconds": 4.61,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 2934,
+              "prompt_tokens": 730,
+              "output_tokens": 109,
+              "seconds": 5.39,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 1889,
+              "prompt_tokens": 458,
+              "output_tokens": 135,
+              "seconds": 4.85,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 64.1
+      }
+    },
+    {
+      "issue": "medium_04",
+      "difficulty": "medium",
+      "title": "Etkinlik kaydı eski durumu yanlış gösteriyor",
+      "metrics": {
+        "retrieval": false,
+        "diagnosis": false,
+        "valid_patch": true,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 3,
+        "prompt_tokens": 9087,
+        "seconds": 48.9,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "The activity log shows 'in_progress -> in_progress' when a task is started, instead of 'todo -> in_progress'. The previous status is wrong in every status change entry.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/medium_04",
+        "status": "tests_failed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function that handles task status changes.",
+            "call": "find_symbol(name='on_task_status_changed')",
+            "observation": "Definitions of 'on_task_status_changed':\nnotifications/dispatcher.py:30-35  def NotificationDispatcher.on_task_status_changed\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that handles task status changes.",
+            "call": "read_file(path='notifications/dispatcher.py', start_line=30, end_line=35)",
+            "observation": "notifications/dispatcher.py lines 23-42 of 48:\n23 | \n24 |     def on_task_assigned(self, task_id, assignee_id, actor_id):\n25 |         if assignee_id is None or assignee_id == actor_id:\n26 |             return  # nobody needs to be told about their own action\n27 |         task = self._tasks.get(task_id)\n28 |         self._deliver(assignee_id, models.TASK_ASSIGNED, f\"You were assigned '{task.title}'\")\n29 | \n30 |     def on_task_status_changed(self, task_id, old_status, new_status, actor_id):\n31 |         if new_status != Status.DONE:\n32 |             return\n33 |         task = self._tasks.get(task_id)\n34 |         if task.created_by != actor_id:\n35 |             self._deliver(task.created_by, models.TASK_COMPLETED, f\"'{task.title}' was completed\")\n36 | \n37 |     def on_member_added(self, project_id, user_id, actor_id):\n38 |         project = self._projects.get(project_id)\n39 |         self._deliver(user_id, models.PROJECT_INVITE, f\"You were added to project '{project.name}'\")\n40 | \n41 |     def on_comment_added(self, comment_id, task_id, author_id, mentioned_ids):\n42 |         task = self._tasks.get(task_id)\n[widened from 30-35 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if the bug is related to the task status change logic.",
+            "call": "finish()",
+            "observation": "",
+            "status": "ok"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "model finished",
+        "diagnosis": {
+          "analysis": "The bug report indicates that the activity log incorrectly shows 'in_progress -> in_progress' when a task is started, instead of 'todo -> in_progress'. The previous status is wrong in every status change entry. The code for handling task status changes is in `on_task_status_changed` method. The method checks if the new status is not 'DONE' and then delivers a notification. However, if the new status is 'DONE', it does not check if the task was created by the actor. This leads to the incorrect status change entry in the activity log.",
+          "issue_summary": "The activity log incorrectly shows 'in_progress -> in_progress' when a task is started, instead of 'todo -> in_progress'. The previous status is wrong in every status change entry.",
+          "root_cause": "The root cause of the bug is the missing check in the `on_task_status_changed` method to ensure that the task was created by the actor before delivering a notification. The method should check if `task.created_by != actor_id` before delivering a notification.",
+          "relevant_files": [
+            "notifications/dispatcher.py"
+          ],
+          "evidence": [
+            {
+              "file": "notifications/dispatcher.py",
+              "start_line": 30,
+              "end_line": 36,
+              "why": "The method checks if the new status is not 'DONE' and then delivers a notification. However, if the new status is 'DONE', it does not check if the task was created by the actor.",
+              "code": "30 |     def on_task_status_changed(self, task_id, old_status, new_status, actor_id):\n31 |         if new_status != Status.DONE:\n32 |             return\n33 |         task = self._tasks.get(task_id)\n34 |         if task.created_by != actor_id:\n35 |             self._deliver(task.created_by, models.TASK_COMPLETED, f\"'{task.title}' was completed\")\n36 | "
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "notifications/dispatcher.py: old_text occurs 3 times; include more context",
+            "notifications/dispatcher.py: old_text occurs 3 times; include more context"
+          ],
+          "applied": true,
+          "plan": "Add a check to ensure the task was created by the actor before delivering a notification in the `on_task_status_changed` method.",
+          "diff": "--- a/notifications/dispatcher.py\n+++ b/notifications/dispatcher.py\n@@ -28,7 +28,7 @@\n         self._deliver(assignee_id, models.TASK_ASSIGNED, f\"You were assigned '{task.title}'\")\n \n     def on_task_status_changed(self, task_id, old_status, new_status, actor_id):\n-        if new_status != Status.DONE:\n+        if new_status != Status.DONE and task.created_by != actor_id:\n             return\n         task = self._tasks.get(task_id)\n         if task.created_by != actor_id:\n",
+          "changed_lines": 6,
+          "plans": [
+            "Add a check to ensure the task was created by the actor before delivering a notification in the `on_task_status_changed` method.",
+            "Add a check to ensure the task was created by the actor before delivering a notification in the `on_task_status_changed` method.",
+            "Add a check to ensure the task was created by the actor before delivering a notification in the `on_task_status_changed` method."
+          ],
+          "rolled_back": true
+        },
+        "tests": {
+          "passed": false,
+          "repairs": 2,
+          "runs": [
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_activity.py::test_status_change_records_old_and_new_status",
+                "tests/test_notifications.py::test_completion_notifies_creator",
+                "tests/test_notifications.py::test_deactivated_users_receive_nothing",
+                "tests/test_queries.py::test_filter_by_status_and_assignee",
+                "tests/test_reports.py::test_progress_counts_done_tasks",
+                "tests/test_reports.py::test_reopened_task_is_no_longer_done",
+                "tests/test_reports.py::test_workload_counts_only_open_tasks",
+                "tests/test_reports.py::test_blocked_tasks_report",
+                "tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it",
+                "tests/test_tasks.py::test_overdue_tasks_exclude_done",
+                "tests/test_workflow.py::test_blocked_task_can_resume"
+              ],
+              "summary": "11 failed, 61 passed in 0.05s",
+              "brief": "notifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nFAILED tests/test_activity.py::test_status_change_records_old_and_new_status\nFAILED tests/test_notifications.py::test_completion_notifies_creator - Unboun...\nFAILED tests/test_notifications.py::test_deactivated_users_receive_nothing - ...\nFAILED tests/test_queries.py::test_filter_by_status_and_assignee - UnboundLoc...\nFAILED tests/test_reports.py::test_progress_counts_done_tasks - UnboundLocalE...\nFAILED tests/test_reports.py::test_reopened_task_is_no_longer_done - UnboundL...\nFAILED tests/test_reports.py::test_workload_counts_only_open_tasks - UnboundL...\nFAILED tests/test_reports.py::test_blocked_tasks_report - UnboundLocalError: ...\nFAILED tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it\nFAILED tests/test_tasks.py::test_overdue_tasks_exclude_done - UnboundLocalErr...\nFAILED tests/test_workflow.py::test_blocked_task_can_resume - UnboundLocalErr...",
+              "timed_out": false
+            },
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_activity.py::test_status_change_records_old_and_new_status",
+                "tests/test_notifications.py::test_completion_notifies_creator",
+                "tests/test_notifications.py::test_deactivated_users_receive_nothing",
+                "tests/test_queries.py::test_filter_by_status_and_assignee",
+                "tests/test_reports.py::test_progress_counts_done_tasks",
+                "tests/test_reports.py::test_reopened_task_is_no_longer_done",
+                "tests/test_reports.py::test_workload_counts_only_open_tasks",
+                "tests/test_reports.py::test_blocked_tasks_report",
+                "tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it",
+                "tests/test_tasks.py::test_overdue_tasks_exclude_done",
+                "tests/test_workflow.py::test_blocked_task_can_resume"
+              ],
+              "summary": "11 failed, 61 passed in 0.05s",
+              "brief": "notifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nFAILED tests/test_activity.py::test_status_change_records_old_and_new_status\nFAILED tests/test_notifications.py::test_completion_notifies_creator - Unboun...\nFAILED tests/test_notifications.py::test_deactivated_users_receive_nothing - ...\nFAILED tests/test_queries.py::test_filter_by_status_and_assignee - UnboundLoc...\nFAILED tests/test_reports.py::test_progress_counts_done_tasks - UnboundLocalE...\nFAILED tests/test_reports.py::test_reopened_task_is_no_longer_done - UnboundL...\nFAILED tests/test_reports.py::test_workload_counts_only_open_tasks - UnboundL...\nFAILED tests/test_reports.py::test_blocked_tasks_report - UnboundLocalError: ...\nFAILED tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it\nFAILED tests/test_tasks.py::test_overdue_tasks_exclude_done - UnboundLocalErr...\nFAILED tests/test_workflow.py::test_blocked_task_can_resume - UnboundLocalErr...",
+              "timed_out": false
+            },
+            {
+              "passed": false,
+              "failed": [
+                "tests/test_activity.py::test_status_change_records_old_and_new_status",
+                "tests/test_notifications.py::test_completion_notifies_creator",
+                "tests/test_notifications.py::test_deactivated_users_receive_nothing",
+                "tests/test_queries.py::test_filter_by_status_and_assignee",
+                "tests/test_reports.py::test_progress_counts_done_tasks",
+                "tests/test_reports.py::test_reopened_task_is_no_longer_done",
+                "tests/test_reports.py::test_workload_counts_only_open_tasks",
+                "tests/test_reports.py::test_blocked_tasks_report",
+                "tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it",
+                "tests/test_tasks.py::test_overdue_tasks_exclude_done",
+                "tests/test_workflow.py::test_blocked_task_can_resume"
+              ],
+              "summary": "11 failed, 61 passed in 0.05s",
+              "brief": "notifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nnotifications/dispatcher.py:31: UnboundLocalError: cannot access local variable 'task' where it is not associated with a value\nFAILED tests/test_activity.py::test_status_change_records_old_and_new_status\nFAILED tests/test_notifications.py::test_completion_notifies_creator - Unboun...\nFAILED tests/test_notifications.py::test_deactivated_users_receive_nothing - ...\nFAILED tests/test_queries.py::test_filter_by_status_and_assignee - UnboundLoc...\nFAILED tests/test_reports.py::test_progress_counts_done_tasks - UnboundLocalE...\nFAILED tests/test_reports.py::test_reopened_task_is_no_longer_done - UnboundL...\nFAILED tests/test_reports.py::test_workload_counts_only_open_tasks - UnboundL...\nFAILED tests/test_reports.py::test_blocked_tasks_report - UnboundLocalError: ...\nFAILED tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it\nFAILED tests/test_tasks.py::test_overdue_tasks_exclude_done - UnboundLocalErr...\nFAILED tests/test_workflow.py::test_blocked_task_can_resume - UnboundLocalErr...",
+              "timed_out": false
+            }
+          ]
+        },
+        "files_read": [
+          "notifications/dispatcher.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 9,
+          "prompt_tokens": 9087,
+          "output_tokens": 965,
+          "max_prompt_tokens": 1627,
+          "seconds": 48.1,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 3,
+              "prompt_tokens": 4153
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 702
+            },
+            "patch": {
+              "calls": 1,
+              "prompt_tokens": 531
+            },
+            "repair": {
+              "calls": 4,
+              "prompt_tokens": 3701
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5137,
+              "prompt_tokens": 1210,
+              "output_tokens": 33,
+              "seconds": 4.69,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5612,
+              "prompt_tokens": 1316,
+              "output_tokens": 50,
+              "seconds": 2.32,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6691,
+              "prompt_tokens": 1627,
+              "output_tokens": 29,
+              "seconds": 2.41,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 2786,
+              "prompt_tokens": 702,
+              "output_tokens": 329,
+              "seconds": 13.38,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 2232,
+              "prompt_tokens": 531,
+              "output_tokens": 92,
+              "seconds": 4.61,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 5412,
+              "prompt_tokens": 1265,
+              "output_tokens": 110,
+              "seconds": 6.96,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 2445,
+              "prompt_tokens": 575,
+              "output_tokens": 106,
+              "seconds": 3.57,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 5476,
+              "prompt_tokens": 1279,
+              "output_tokens": 110,
+              "seconds": 6.5,
+              "ok": true
+            },
+            {
+              "stage": "repair",
+              "prompt_chars": 2477,
+              "prompt_tokens": 582,
+              "output_tokens": 106,
+              "seconds": 3.61,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 48.9
+      }
+    },
+    {
+      "issue": "medium_05",
+      "difficulty": "medium",
+      "title": "Projeden çıkarılan üyenin görevleri ona atanmış kalıyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": false,
+        "valid_patch": false,
+        "tests_pass": false,
+        "autonomous": false,
+        "steps": 5,
+        "prompt_tokens": 10191,
+        "seconds": 47.1,
+        "unsafe_or_invalid": 2
+      },
+      "report": {
+        "issue": "After a member is removed from a project, the tasks that were assigned to them in that project stay assigned to them. They should become unassigned.",
+        "model": "qwen2.5-coder:3b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/medium_05",
+        "status": "patch_unavailable",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function that handles project member removal.",
+            "call": "find_symbol(name='remove_member')",
+            "observation": "Definitions of 'remove_member':\nprojects/service.py:53-65  def ProjectService.remove_member\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that removes a project member.",
+            "call": "read_file(path='projects/service.py', start_line=53, end_line=65)",
+            "observation": "projects/service.py lines 50-69 of 78:\n50 |                           user_id=user_id, actor_id=actor_id)\n51 |         return project\n52 | \n53 |     def remove_member(self, project_id, actor_id, user_id):\n54 |         project = self._projects.get(project_id)\n55 |         permissions.require(permissions.can_manage(project, actor_id),\n56 |                             \"only the project owner can remove members\")\n57 |         if user_id == project.owner_id:\n58 |             raise ValidationError(\"the owner cannot be removed from the project\")\n59 |         if user_id not in project.members:\n60 |             raise ValidationError(f\"user {user_id} is not a member\")\n61 |         del project.members[user_id]\n62 |         self._projects.update(project)\n63 |         self._bus.publish(events.PROJECT_MEMBER_REMOVED, project_id=project.id,\n64 |                           user_id=user_id, actor_id=actor_id)\n65 |         return project\n66 | \n67 |     def archive(self, project_id, actor_id):\n68 |         project = self._projects.get(project_id)\n69 |         permissions.require(permissions.can_manage(project, actor_id),\n[widened from 53-65 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check if tasks are assigned to the removed member.",
+            "call": "read_file(path='tasks/service.py', start_line=1, end_line=10)",
+            "observation": "tasks/service.py lines 1-20 of 126:\n 1 | \"\"\"Task creation, assignment, status changes and listing.\"\"\"\n 2 | import events\n 3 | from common.errors import ValidationError\n 4 | from common.validation import require_text\n 5 | from projects import permissions\n 6 | from tasks import queries, workflow\n 7 | from tasks.models import Priority, Status, Task\n 8 | \n 9 | \n10 | class TaskService:\n11 |     def __init__(self, repository, projects, users, ids, clock, bus):\n12 |         self._tasks = repository\n13 |         self._projects = projects\n14 |         self._users = users\n15 |         self._ids = ids\n16 |         self._clock = clock\n17 |         self._bus = bus\n18 |         bus.subscribe(events.PROJECT_MEMBER_REMOVED, self.on_member_removed)\n19 | \n20 |     # -- helpers -----------------------------------------------------------\n[widened from 1-10 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Check if tasks are assigned to the removed member.",
+            "call": "read_file(path='tasks/service.py', start_line=1, end_line=10)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 5,
+            "thought": "Check if tasks are assigned to the removed member.",
+            "call": "read_file(path='tasks/service.py', start_line=1, end_line=10)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that after a member is removed from a project, the tasks assigned to them in that project should become unassigned. However, the code does not handle the unassignment of tasks when a member is removed from a project. The `remove_member` method only removes the user from the project's `members` list, but does not update the tasks assigned to that user. This means that the tasks assigned to the removed user remain assigned to them.",
+          "issue_summary": "Tasks assigned to a removed project member remain assigned to them.",
+          "root_cause": "The `remove_member` method does not update the tasks assigned to the removed user. This is because the method only removes the user from the project's `members` list, but does not update the tasks assigned to that user.",
+          "relevant_files": [
+            "projects/service.py",
+            "tasks/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "projects/service.py",
+              "start_line": 61,
+              "end_line": 61,
+              "why": "The `if user_id not in project.members` condition checks if the user is a member of the project. If the user is not a member, a `ValidationError` is raised. However, this condition does not handle the case where the user is a member of the project and the task is assigned to them.",
+              "code": "61 |         del project.members[user_id]"
+            },
+            {
+              "file": "tasks/service.py",
+              "start_line": 11,
+              "end_line": 11,
+              "why": "The `TaskService` class is initialized with a `repository`, `projects`, `users`, `ids`, `clock`, and `bus`. However, the `bus` is subscribed to the `PROJECT_MEMBER_REMOVED` event, but the `on_member_removed` method is not defined.",
+              "code": "11 |     def __init__(self, repository, projects, users, ids, clock, bus):"
+            }
+          ],
+          "confidence": "medium"
+        },
+        "patch": {
+          "rejected": 2,
+          "rejections": [
+            "the new code uses names that do not exist anywhere in the repository: get_tasks_assigned_to_user. instead of 'get_tasks_assigned_to_user' maybe: on_task_assigned. Use only existing fields/functions or remove that code.",
+            "the new code uses names that do not exist anywhere in the repository: update_tasks_assigned_to_user. instead of 'update_tasks_assigned_to_user' maybe: on_task_assigned. Use only existing fields/functions or remove that code."
+          ],
+          "applied": false
+        },
+        "files_read": [
+          "projects/service.py",
+          "tasks/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 8,
+          "prompt_tokens": 10191,
+          "output_tokens": 999,
+          "max_prompt_tokens": 1833,
+          "seconds": 46.8,
+          "invalid_replies": 0,
+          "by_stage": {
+            "research": {
+              "calls": 5,
+              "prompt_tokens": 7701
+            },
+            "diagnosis": {
+              "calls": 1,
+              "prompt_tokens": 853
+            },
+            "patch": {
+              "calls": 2,
+              "prompt_tokens": 1637
+            }
+          },
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 5117,
+              "prompt_tokens": 1204,
+              "output_tokens": 31,
+              "seconds": 3.12,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5506,
+              "prompt_tokens": 1294,
+              "output_tokens": 48,
+              "seconds": 1.79,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6606,
+              "prompt_tokens": 1563,
+              "output_tokens": 48,
+              "seconds": 3.23,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7543,
+              "prompt_tokens": 1807,
+              "output_tokens": 48,
+              "seconds": 3.17,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7629,
+              "prompt_tokens": 1833,
+              "output_tokens": 48,
+              "seconds": 3.32,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 3576,
+              "prompt_tokens": 853,
+              "output_tokens": 396,
+              "seconds": 16.33,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 3610,
+              "prompt_tokens": 786,
+              "output_tokens": 293,
+              "seconds": 12.58,
+              "ok": true
+            },
+            {
+              "stage": "patch",
+              "prompt_chars": 3935,
+              "prompt_tokens": 851,
+              "output_tokens": 87,
+              "seconds": 3.26,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 47.1
+      }
+    }
+  ]
+}
