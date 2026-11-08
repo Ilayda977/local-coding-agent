@@ -34,6 +34,18 @@ flowchart TD
     RT -->|onarımlar bitti| RB[rollback + rapor]
 ```
 
+## Sonuçlar (özet)
+
+15 issue, her biri temiz kopyada; testleri değerlendirici çalıştırır.
+
+| model | retrieval | diagnosis | geçerli patch | otonom çözüm | ort. süre/issue |
+| --- | --- | --- | --- | --- | --- |
+| qwen2.5-coder:7b | 13/15 | 8/15 | 12/15 | **5/15** | 141 sn |
+| qwen2.5-coder:3b | 9/15 | 4/15 | 7/15 | 1/15 | 46 sn |
+
+Ayrıntı, context karşılaştırması ve başarısızlık analizi: [OGRENME_REHBERI.md §6–7](OGRENME_REHBERI.md).
+Demo senaryosu: [DEMO.md](DEMO.md), sunum taslağı: [SUNUM.md](SUNUM.md).
+
 ## Kurulum
 
 ```bash
