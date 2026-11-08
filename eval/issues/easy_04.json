@@ -1,0 +1,19 @@
+{
+  "id": "easy_04",
+  "difficulty": "easy",
+  "title_tr": "Tamamlanmış görevler gecikmiş listesinde görünüyor",
+  "issue": "Tasks that are already DONE still show up in the project's overdue task list if their due date has passed. Completed tasks should never be reported as overdue.",
+  "bug": {
+    "file": "tasks/service.py",
+    "find": "                and task.status != Status.DONE\n                and task.due_date < today)\n",
+    "replace": "                and task.due_date < today)\n"
+  },
+  "ground_truth": {
+    "relevant_files": ["tasks/service.py"],
+    "root_cause": "TaskService.is_overdue only compares the due date with today and does not check the task status, so DONE tasks are counted as overdue.",
+    "fix": "Add `task.status != Status.DONE` to the condition in is_overdue."
+  },
+  "failing_tests": [
+    "tests/test_tasks.py::test_overdue_tasks_exclude_done"
+  ]
+}

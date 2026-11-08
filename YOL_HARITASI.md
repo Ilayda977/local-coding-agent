@@ -140,16 +140,20 @@ local-coding-agent/
 Her adımın sonunda: çalışan bir sürüm, geçen testler, bir commit ve
 **senin kendi cümlelerinle açıklayabileceğin** bir kavram.
 
-### Adım 0 — Temizlik ve güvenceye alma (½ gün)
+### Adım 0 — Temizlik ve güvenceye alma (½ gün) ✅ 8 Kasım 2026
 - Mevcut her şeyi `legacy-v1` dalına commit et, `main`'i sadeleştir.
 - Eski kodu ve `.md` belgelerini `legacy/` klasörüne taşı.
 - **Öğrenilecek:** git dalı, neden önce yedek.
 
-### Adım 1 — Örnek repo: `taskflow` + 5 easy issue (1 gün)
-- Mentörün bir repo verdiyse onu kullan; yoksa birlikte yazarız:
-  users / projects / tasks / notifications, ~15 dosya, ~20 test.
-- 5 kolay bug yerleştir; her biri için `eval/issues/easy_0X.json`:
-  issue metni, beklenen dosyalar, kök neden, düzeltme (ground truth).
+### Adım 1 — Örnek repo: `taskflow` + 5 easy issue (1 gün) ✅ 8 Kasım 2026
+- Mentör repo vermediği için birlikte yazıldı: `taskflow/` — 20 kaynak dosya,
+  ~790 satır, 49 test (parametreli testler dahil). Temiz kodda hepsi geçiyor.
+- 5 kolay bug: `eval/issues/easy_01..05.json` (issue metni, bug, ground truth,
+  kırılması beklenen testler). Bug'lar repoda **değil**, JSON'da durur;
+  `eval/issues.py prepare <id>` temiz kopyaya enjekte eder.
+- `python eval/issues.py check` → temiz repo yeşil, her bug yalnız kendi testini kırıyor.
+- Not: PDF 2.000–4.000 satır hedefliyor. Repo, medium/hard issue'lar eklenirken
+  (Adım 8 öncesi) büyütülecek; şimdilik easy issue'lar için yeterli.
 - **Öğrenilecek:** benchmark tasarımı; "ölçemediğin şeyi geliştiremezsin".
 
 ### Adım 2 — Faz 1: Araçlar ve repo sınırı (1 gün)

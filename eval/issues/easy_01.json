@@ -1,0 +1,21 @@
+{
+  "id": "easy_01",
+  "difficulty": "easy",
+  "title_tr": "Geçersiz e-posta adresiyle kayıt olunabiliyor",
+  "issue": "Users can register with clearly invalid email addresses such as `ali@` or `ali@example`. Registration should be rejected with a ValidationError when the address has no domain or no top-level domain.",
+  "bug": {
+    "file": "common/validation.py",
+    "find": "    if not EMAIL_PATTERN.match(email):\n",
+    "replace": "    if \"@\" not in email:\n"
+  },
+  "ground_truth": {
+    "relevant_files": ["common/validation.py"],
+    "root_cause": "normalize_email only checks that the string contains '@' instead of matching EMAIL_PATTERN, so addresses without a dotted domain are accepted.",
+    "fix": "Use EMAIL_PATTERN.match(email) in normalize_email."
+  },
+  "failing_tests": [
+    "tests/test_users.py::test_register_rejects_invalid_email[a li@example.com]",
+    "tests/test_users.py::test_register_rejects_invalid_email[ali@]",
+    "tests/test_users.py::test_register_rejects_invalid_email[ali@example]"
+  ]
+}
