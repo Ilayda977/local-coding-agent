@@ -2,7 +2,7 @@
 
 Each metric answers one question, so we can see *where* a run broke:
 
-retrieval        did the agent read every ground-truth file?
+retrieval        did the agent read every file that contains the bug?
 diagnosis        does the evidence point at the buggy line (±2) AND does the root
                  cause mention the ground-truth key ideas (keyword groups)?
 valid_patch      did it produce a patch that applied and parsed?
@@ -80,7 +80,9 @@ def evaluator_tests_pass(report, workspace):
 
 
 def score(issue, report, workspace, run_tests=True):
-    truth = set(issue["ground_truth"]["relevant_files"])
+    # Retrieval = every file that contains the bug was read. The ground truth's
+    # relevant_files also lists context files that help but are not required.
+    truth = {file for file, _first, _last in bug_locations(issue)}
     patch = report.get("patch") or {}
     usage = report.get("usage", {})
     invalid = (len(report.get("blocked_paths", [])) + usage.get("invalid_replies", 0)
