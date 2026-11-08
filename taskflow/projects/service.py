@@ -59,7 +59,10 @@ class ProjectService:
         if user_id not in project.members:
             raise ValidationError(f"user {user_id} is not a member")
         del project.members[user_id]
-        return self._projects.update(project)
+        self._projects.update(project)
+        self._bus.publish(events.PROJECT_MEMBER_REMOVED, project_id=project.id,
+                          user_id=user_id, actor_id=actor_id)
+        return project
 
     def archive(self, project_id, actor_id):
         project = self._projects.get(project_id)

@@ -9,6 +9,12 @@ from lca.tools import Repo
 
 TASKFLOW = Path(__file__).resolve().parent.parent / "taskflow"
 
+# Line of "def is_overdue" in taskflow/tasks/service.py. Tests use offsets from
+# here instead of fixed numbers, so adding code to taskflow does not break them.
+OVERDUE = next(n for n, line in enumerate(
+    (TASKFLOW / "tasks" / "service.py").read_text().splitlines(), start=1)
+    if "def is_overdue" in line)
+
 
 @pytest.fixture
 def settings():

@@ -1,0 +1,33 @@
+{
+  "id": "hard_01",
+  "difficulty": "hard",
+  "title_tr": "Devre dışı bırakılan kullanıcı bildirim almaya devam ediyor",
+  "issue": "A user who was deactivated by an admin keeps receiving notifications, for example when a task they created is completed or when someone mentions them in a comment. Deactivated accounts should not receive any notifications.",
+  "bug": [
+    {
+      "file": "notifications/dispatcher.py",
+      "find": "        if not self._users.get(user_id).active:\n            return None\n",
+      "replace": ""
+    }
+  ],
+  "ground_truth": {
+    "relevant_files": [
+      "notifications/dispatcher.py"
+    ],
+    "root_cause": "NotificationDispatcher._deliver, the single place every event notification goes through, does not check whether the user is active before calling notify.",
+    "fix": "In _deliver, return without notifying when self._users.get(user_id).active is False.",
+    "keywords": [
+      [
+        "_deliver",
+        "dispatcher"
+      ],
+      [
+        "active",
+        "deactivat"
+      ]
+    ]
+  },
+  "failing_tests": [
+    "tests/test_notifications.py::test_deactivated_users_receive_nothing"
+  ]
+}

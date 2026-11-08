@@ -1,0 +1,34 @@
+{
+  "id": "hard_03",
+  "difficulty": "hard",
+  "title_tr": "Proje üyesi olmayan kullanıcı @mention ile bildirim alıyor",
+  "issue": "If someone mentions a user who is not a member of the project in a task comment, that user gets a notification containing the task title, leaking information about a project they cannot see. Only project members should be notified.",
+  "bug": [
+    {
+      "file": "comments/service.py",
+      "find": "            if not permissions.can_view(project, user.id):\n                continue  # never notify people about projects they cannot see\n",
+      "replace": ""
+    }
+  ],
+  "ground_truth": {
+    "relevant_files": [
+      "comments/service.py"
+    ],
+    "root_cause": "CommentService._resolve_mentions adds every user found by handle to mentioned_ids without checking project membership (permissions.can_view), and the dispatcher notifies all mentioned users.",
+    "fix": "Skip users for whom permissions.can_view(project, user.id) is False in _resolve_mentions.",
+    "keywords": [
+      [
+        "_resolve_mentions",
+        "mention"
+      ],
+      [
+        "can_view",
+        "member",
+        "permission"
+      ]
+    ]
+  },
+  "failing_tests": [
+    "tests/test_comments.py::test_mentioning_a_non_member_does_not_notify_them"
+  ]
+}

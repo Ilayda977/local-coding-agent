@@ -1,0 +1,33 @@
+{
+  "id": "hard_05",
+  "difficulty": "hard",
+  "title_tr": "Mention edilen atanan kişi iki bildirim alıyor",
+  "issue": "When a comment mentions the task's assignee, the assignee receives two notifications (a mention and a 'new comment' notification). They should only get the mention.",
+  "bug": [
+    {
+      "file": "notifications/dispatcher.py",
+      "find": "        if assignee and assignee != author_id and assignee not in mentioned_ids:\n",
+      "replace": "        if assignee and assignee != author_id:\n"
+    }
+  ],
+  "ground_truth": {
+    "relevant_files": [
+      "notifications/dispatcher.py",
+      "comments/service.py"
+    ],
+    "root_cause": "NotificationDispatcher.on_comment_added notifies the assignee about the comment without checking whether they are already in mentioned_ids, so a mentioned assignee is notified twice.",
+    "fix": "Skip the TASK_COMMENTED notification when the assignee is in mentioned_ids.",
+    "keywords": [
+      [
+        "on_comment_added"
+      ],
+      [
+        "mentioned_ids",
+        "mention"
+      ]
+    ]
+  },
+  "failing_tests": [
+    "tests/test_comments.py::test_assignee_hears_about_comments_only_once"
+  ]
+}

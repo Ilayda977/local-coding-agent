@@ -44,3 +44,11 @@ def test_list_for_user_only_returns_member_projects(app, project, alice, admin):
     app.projects.archive(other.id, admin.id)
     assert app.projects.list_for_user(admin.id) == []
     assert len(app.projects.list_for_user(admin.id, include_archived=True)) == 1
+
+
+def test_removed_member_tasks_become_unassigned(app, project, alice, bob):
+    mine = app.tasks.create(project.id, alice.id, "Bob's task", assignee_id=bob.id)
+    other = app.tasks.create(project.id, alice.id, "Alice's task", assignee_id=alice.id)
+    app.projects.remove_member(project.id, alice.id, bob.id)
+    assert app.tasks.get(mine.id).assignee_id is None
+    assert app.tasks.get(other.id).assignee_id == alice.id

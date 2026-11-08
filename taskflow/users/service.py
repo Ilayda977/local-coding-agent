@@ -1,7 +1,16 @@
 """User registration and administration."""
-from common.errors import ConflictError, NotFoundError, PermissionDeniedError
+import re
+
+from common.errors import ConflictError, NotFoundError, PermissionDeniedError, ValidationError
 from common.validation import normalize_email, require_text
 from users.models import Role, User
+
+HANDLE_PATTERN = re.compile(r"^[a-z0-9_.]{2,30}$")
+
+
+def normalize_handle(handle):
+    """'@Alice ' -> 'alice'. Handles are case-insensitive."""
+    return str(handle or "").strip().lstrip("@").lower()
 
 
 class UserService:
@@ -10,12 +19,17 @@ class UserService:
         self._ids = ids
         self._clock = clock
 
-    def register(self, email, name, role=Role.MEMBER):
+    def register(self, email, name, role=Role.MEMBER, handle=None):
         email = normalize_email(email)
         name = require_text(name, "name", max_length=80)
+        handle = normalize_handle(handle or email.split("@")[0])
+        if not HANDLE_PATTERN.match(handle):
+            raise ValidationError(f"invalid handle: {handle}")
         if self._users.list(lambda user: user.email == email):
             raise ConflictError(f"email already registered: {email}")
-        user = User(id=self._ids.next(), email=email, name=name,
+        if self._users.list(lambda user: user.handle == handle):
+            raise ConflictError(f"handle already taken: {handle}")
+        user = User(id=self._ids.next(), email=email, name=name, handle=handle,
                     created_at=self._clock.now(), role=Role(role))
         return self._users.add(user)
 
@@ -28,6 +42,12 @@ class UserService:
         if not matches:
             raise NotFoundError(f"no user with email {email}")
         return matches[0]
+
+    def find_by_handle(self, handle):
+        """The user with this handle, or None."""
+        wanted = normalize_handle(handle)
+        matches = self._users.list(lambda user: user.handle == wanted)
+        return matches[0] if matches else None
 
     def require_active(self, user_id):
         """Return the user, or raise if the account was deactivated."""

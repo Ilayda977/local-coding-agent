@@ -4,7 +4,7 @@ import pytest
 from lca import agent
 from lca.patching import (PatchError, PatchProposal, build_patch, is_test_file,
                           replace_once)
-from tests.conftest import make_llm
+from tests.conftest import OVERDUE, make_llm
 from tests.fakes import act
 
 OVERDUE_FIXED = ("        return (task.due_date is not None\n"
@@ -22,7 +22,7 @@ def buggy(repo):
     """The easy_04 bug, injected into the private copy, and its lines read."""
     path = repo.root / "tasks/service.py"
     path.write_text(path.read_text().replace("                and task.status != Status.DONE\n", ""))
-    repo.read_file("tasks/service.py", 90, 110)
+    repo.read_file("tasks/service.py", OVERDUE - 6, OVERDUE + 14)
     return repo
 
 
@@ -130,13 +130,13 @@ def test_apply_refuses_if_file_changed_since_reading(buggy):
 
 DIAGNOSIS = {"analysis": "", "issue_summary": "s", "root_cause": "`is_overdue` ignores status.",
              "relevant_files": ["tasks/service.py"], "confidence": "high",
-             "evidence": [{"file": "tasks/service.py", "start_line": 99, "end_line": 100,
+             "evidence": [{"file": "tasks/service.py", "start_line": OVERDUE + 3, "end_line": OVERDUE + 4,
                            "why": "missing check"}]}
 
 
 def scripted(settings):
     return make_llm(settings, [
-        act("read_file", path="tasks/service.py", start_line=90, end_line=110),
+        act("read_file", path="tasks/service.py", start_line=OVERDUE - 6, end_line=OVERDUE + 14),
         act("finish"),
         DIAGNOSIS,
         {"plan": "Add the status check.", "edits": [
@@ -183,7 +183,7 @@ def test_approved_patch_is_applied(taskflow_copy, settings):
 def test_rejected_patch_gets_one_more_try(taskflow_copy, settings):
     inject_bug(taskflow_copy)
     llm, client = make_llm(settings, [
-        act("read_file", path="tasks/service.py", start_line=90, end_line=110),
+        act("read_file", path="tasks/service.py", start_line=OVERDUE - 6, end_line=OVERDUE + 14),
         act("finish"), DIAGNOSIS,
         {"plan": "bad", "edits": [{"file": "tasks/service.py", "old_text": "nope", "new_text": "x"}]},
         {"plan": "good", "edits": [{"file": "tasks/service.py", "old_text": OLD,

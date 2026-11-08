@@ -1,0 +1,33 @@
+{
+  "id": "medium_05",
+  "difficulty": "medium",
+  "title_tr": "Projeden çıkarılan üyenin görevleri ona atanmış kalıyor",
+  "issue": "After a member is removed from a project, the tasks that were assigned to them in that project stay assigned to them. They should become unassigned.",
+  "bug": [
+    {
+      "file": "tasks/service.py",
+      "find": "            if task.assignee_id == user_id:\n",
+      "replace": "            if task.assignee_id == project_id:\n"
+    }
+  ],
+  "ground_truth": {
+    "relevant_files": [
+      "tasks/service.py",
+      "projects/service.py"
+    ],
+    "root_cause": "TaskService.on_member_removed compares task.assignee_id with project_id instead of user_id, so no task ever matches and nothing is unassigned.",
+    "fix": "Compare task.assignee_id == user_id.",
+    "keywords": [
+      [
+        "on_member_removed"
+      ],
+      [
+        "project_id",
+        "user_id"
+      ]
+    ]
+  },
+  "failing_tests": [
+    "tests/test_projects.py::test_removed_member_tasks_become_unassigned"
+  ]
+}

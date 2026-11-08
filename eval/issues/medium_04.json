@@ -1,0 +1,32 @@
+{
+  "id": "medium_04",
+  "difficulty": "medium",
+  "title_tr": "Etkinlik kaydı eski durumu yanlış gösteriyor",
+  "issue": "The activity log shows 'in_progress -> in_progress' when a task is started, instead of 'todo -> in_progress'. The previous status is wrong in every status change entry.",
+  "bug": [
+    {
+      "file": "tasks/service.py",
+      "find": "                          old_status=old_status, new_status=status, actor_id=actor_id)\n",
+      "replace": "                          old_status=status, new_status=status, actor_id=actor_id)\n"
+    }
+  ],
+  "ground_truth": {
+    "relevant_files": [
+      "tasks/service.py",
+      "activity/log.py"
+    ],
+    "root_cause": "TaskService.change_status publishes TASK_STATUS_CHANGED with old_status=status (the new status) instead of the saved old_status; the activity log just formats what it receives.",
+    "fix": "Publish old_status=old_status in change_status.",
+    "keywords": [
+      [
+        "change_status"
+      ],
+      [
+        "old_status"
+      ]
+    ]
+  },
+  "failing_tests": [
+    "tests/test_activity.py::test_status_change_records_old_and_new_status"
+  ]
+}
