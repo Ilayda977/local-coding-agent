@@ -19,6 +19,10 @@ def build_parser():
     parser.add_argument("issue", help="bug report / issue text")
     parser.add_argument("--repo", required=True, help="repository folder the agent may read")
     parser.add_argument("--model", help="Ollama model (default: qwen2.5-coder:7b)")
+    parser.add_argument("--fix", action="store_true",
+                        help="after the diagnosis, propose a patch and apply it if you approve")
+    parser.add_argument("--yes", action="store_true",
+                        help="approve the patch without asking (only for throwaway copies!)")
     parser.add_argument("--json", action="store_true", help="print only the final JSON report")
     parser.add_argument("--save", metavar="FILE", help="also write the JSON report to FILE")
     return parser
@@ -50,13 +54,29 @@ def main(argv=None):
     def on_event(kind, data):
         if args.json:
             return
+        if kind == "patch_rejected":
+            print("\n" + _style(BOLD, "Patch rejected by the controller: ", color) + data)
+        if kind == "patch_applied":
+            print("\n" + _style(BOLD, "Patch applied.", color))
         if kind == "diagnosis_rejected":
             print("\n" + _style(BOLD, "Diagnosis rejected by the controller:", color))
             for problem in data:
                 print(f"  - {problem}")
 
+    def approve(plan, diff):
+        """Human-in-the-loop: show plan + diff, write only after an explicit yes."""
+        print("\n" + _style(BOLD, "== Proposed patch ==", color))
+        print(f"plan: {plan}\n")
+        print(_colored_diff(diff, color))
+        if not sys.stdin.isatty():
+            print("(no interactive terminal: patch NOT applied; use --yes on a throwaway copy)")
+            return False
+        answer = input("Apply this patch? Type 'yes' to apply: ").strip().lower()
+        return answer == "yes"
+
     report = agent.run(args.issue, args.repo, settings, on_step=on_step, on_token=on_token,
-                       events=on_event)
+                       events=on_event, fix=args.fix, auto_approve=args.yes,
+                       approve=None if args.json else approve)
 
     if args.save:
         Path(args.save).write_text(json.dumps(report, indent=2, ensure_ascii=False))
@@ -64,7 +84,21 @@ def main(argv=None):
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
         _print_summary(report, color)
-    return 0 if report["status"] not in {"model_error"} else 1
+    return 0 if report["status"] in {"diagnosed", "patched", "fixed"} else 1
+
+
+def _colored_diff(diff, enabled):
+    if not enabled:
+        return diff
+    out = []
+    for line in diff.splitlines():
+        if line.startswith("+") and not line.startswith("+++"):
+            out.append(f"\033[32m{line}{RESET}")
+        elif line.startswith("-") and not line.startswith("---"):
+            out.append(f"\033[31m{line}{RESET}")
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 
 def _print_summary(report, color):

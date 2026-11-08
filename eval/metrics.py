@@ -6,7 +6,7 @@ retrieval        did the agent read every ground-truth file?
 diagnosis        does the evidence point at the buggy line (±2) AND does the root
                  cause mention the ground-truth key ideas (keyword groups)?
 valid_patch      did it produce a patch that applied and parsed?
-tests_pass       did the whole test suite pass at the end?
+tests_pass       did the whole test suite pass at the end? (run by the evaluator)
 autonomous       tests pass without a human touching anything
 steps            research steps used
 prompt_tokens    total context sent to the model (Phase 5's cost metric)
@@ -14,10 +14,16 @@ unsafe_or_invalid  refused paths + invalid model replies + rejected evidence/pat
 """
 
 
-def bug_lines(issue, workspace):
-    """Line numbers of the injected bug inside the prepared workspace."""
+def bug_lines(issue, workspace=None):
+    """Line numbers of the injected bug, as the agent saw them before any patch.
+
+    Computed from the clean taskflow file with the bug applied in memory, so it
+    still works after the agent has (hopefully) fixed the workspace.
+    """
+    from issues import TASKFLOW  # eval/issues.py
     bug = issue["bug"]
-    text = (workspace / bug["file"]).read_text()
+    clean = (TASKFLOW / bug["file"]).read_text()
+    text = clean.replace(bug["find"], bug["replace"], 1)
     offset = text.index(bug["replace"])
     first = text.count("\n", 0, offset) + 1
     last = first + max(bug["replace"].count("\n") - 1, 0)
@@ -56,20 +62,35 @@ def diagnosis_correct(issue, report, workspace):
     return evidence_hits_bug(issue, report, workspace) and root_cause_matches(issue, report)
 
 
-def score(issue, report, workspace):
+def evaluator_tests_pass(report, workspace):
+    """Run the test suite ourselves after the agent finished.
+
+    We do not trust the agent's own claim: the evaluator checks the final state
+    of the workspace. ``None`` when no patch was applied (nothing to test).
+    """
+    from issues import failing_tests  # eval/issues.py
+    patch = report.get("patch") or {}
+    if not patch.get("applied"):
+        return None
+    return not failing_tests(workspace)
+
+
+def score(issue, report, workspace, run_tests=True):
     truth = set(issue["ground_truth"]["relevant_files"])
     patch = report.get("patch") or {}
-    tests = report.get("tests") or {}
     usage = report.get("usage", {})
     invalid = (len(report.get("blocked_paths", [])) + usage.get("invalid_replies", 0)
                + report.get("rejected_evidence", 0) + patch.get("rejected", 0))
-    tests_pass = tests.get("passed") if tests else None
+    tests_pass = evaluator_tests_pass(report, workspace) if run_tests else None
+    if patch and not patch.get("applied"):
+        tests_pass = False  # a fix was attempted but nothing usable was applied
     return {
         "retrieval": truth.issubset(report.get("files_read", [])),
         "diagnosis": diagnosis_correct(issue, report, workspace),
         "valid_patch": patch.get("applied") if patch else None,
         "tests_pass": tests_pass,
-        "autonomous": bool(tests_pass) if tests else None,
+        # Autonomous = fixed with no human help (eval auto-approves the patch).
+        "autonomous": bool(tests_pass) if tests_pass is not None else None,
         "steps": len(report.get("steps", [])),
         "prompt_tokens": usage.get("prompt_tokens", 0),
         "seconds": report.get("seconds", 0),

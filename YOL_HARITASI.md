@@ -223,3 +223,4 @@ desteği ve aynı döngüyle "bu repoyu özetle" modu. Ayrı bir pipeline değil
 | 2 – Araçlar | 4 araç + repo sınırı, birim testlerle doğrulandı | `tests/test_tools.py` |
 | 3 – Agent döngüsü | 7B: doğru dosyayı okuma **5/5** (kriter ≥4/5 ✅) | `step3_research_7b.md` |
 | 4 – Diagnosis | 7B, tam sohbet geçmişiyle **1/5**; durum özetiyle (compact) **3/5**. Kriter ≥4/5 ❌ (dürüst kayıt) | `step4_diagnosis_7b.md`, `step4_state_7b.md` |
+| 5 – Plan + patch | 7B: sözdizimi geçerli ve uygulanmış patch **5/5** (kriter ≥3 ✅); onarımsız testler 2/5 | `step5_patch_7b.md` |
