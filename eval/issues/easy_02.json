@@ -9,9 +9,29 @@
     "replace": "    \"priority\": lambda task: (task.priority, task.created_at),\n"
   },
   "ground_truth": {
-    "relevant_files": ["tasks/queries.py"],
+    "relevant_files": [
+      "tasks/queries.py"
+    ],
     "root_cause": "The 'priority' sort key in SORT_KEYS uses task.priority ascending; Priority is an IntEnum where URGENT=4, so the most important tasks end up last.",
-    "fix": "Negate the priority in the sort key: (-task.priority, task.created_at)."
+    "fix": "Negate the priority in the sort key: (-task.priority, task.created_at).",
+    "keywords": [
+      [
+        "priority"
+      ],
+      [
+        "ascending",
+        "negat",
+        "-task.priority",
+        "revers",
+        "descending",
+        "lowest",
+        "low priority first",
+        "smallest",
+        "lower number",
+        "higher number",
+        "higher value"
+      ]
+    ]
   },
   "failing_tests": [
     "tests/test_queries.py::test_sort_by_priority_puts_urgent_first"

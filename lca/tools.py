@@ -10,6 +10,7 @@ gets confused by walls of text, and every character costs context.
 """
 import ast
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +41,7 @@ class Repo:
     root: Path
     max_read_lines: int = 80
     max_search_results: int = 30
+    min_read_lines: int = 20
     reads: list = field(default_factory=list)
     blocked: list = field(default_factory=list)  # refused paths, for the evaluation report
 
@@ -175,16 +177,38 @@ class Repo:
         end = total if end_line in (None, "", 0) else min(int(end_line), total)
         if end < start:
             raise ToolError("end_line must be >= start_line")
+        spans = list(_definitions(file)) if file.suffix == ".py" else []
         note = ""
+        if end - start + 1 < self.min_read_lines:
+            # Live runs showed the model reading 5-line slices and missing the
+            # line right above. Widen tiny reads to the whole enclosing function
+            # (or at least min_read_lines), so one read gives enough context.
+            requested = (start, end)
+            start, end = self._widen(spans, start, end, total)
+            if (start, end) != requested:
+                note += f"\n[widened from {requested[0]}-{requested[1]} to give context]"
         if end - start + 1 > self.max_read_lines:
             end = start + self.max_read_lines - 1
-            note = (f"\n[showing {self.max_read_lines} lines; continue with "
-                    f"start_line={end + 1} if you need more]")
+            note += (f"\n[showing {self.max_read_lines} lines; continue with "
+                     f"start_line={end + 1} if you need more]")
         width = len(str(end))
         body = "\n".join(f"{n:>{width}} | {lines[n - 1]}" for n in range(start, end + 1))
         rel = self.relative(file)
         self.reads.append(ReadRecord(rel, start, end))
-        return f"{rel} lines {start}-{end} of {total}:\n{body}{note}"
+        hints = _related_hints(spans, lines, start, end)
+        return f"{rel} lines {start}-{end} of {total}:\n{body}{note}{hints}"
+
+    def _widen(self, spans, start, end, total):
+        """Smallest enclosing function/method that fits, else pad around the request."""
+        enclosing = [(s, e) for _q, kind, s, e in spans
+                     if kind == "def" and s <= start and end <= e and e - s < self.max_read_lines]
+        if enclosing:
+            start, end = max(enclosing)  # innermost = latest start
+        if end - start + 1 < self.min_read_lines:
+            missing = self.min_read_lines - (end - start + 1)
+            start = max(1, start - missing // 2)
+            end = min(total, start + self.min_read_lines - 1)
+        return start, end
 
     def repo_map(self, max_chars=3000):
         """A compact table of contents: each file with the names it defines.
@@ -226,6 +250,49 @@ class Repo:
         """Files the agent has actually opened, in first-read order."""
         return list(dict.fromkeys(record.path for record in self.reads))
 
+    def code_pack(self, max_chars=12000):
+        """Everything the agent has read, merged per file, with real line numbers.
+
+        The diagnosis step gets this instead of the whole research chat: the
+        same facts, without the model's earlier guesses (which it tends to
+        repeat even when they were wrong) and without duplicated reads.
+        """
+        blocks = []
+        for rel in self.read_files():
+            lines_read = set()
+            for record in self.reads:
+                if record.path == rel:
+                    lines_read.update(range(record.start, record.end + 1))
+            source = self._read_lines(self.root / rel)
+            numbers = sorted(n for n in lines_read if n <= len(source))
+            width = len(str(numbers[-1])) if numbers else 1
+            out, previous = [f"### {rel}"], None
+            for n in numbers:
+                if previous is not None and n != previous + 1:
+                    out.append("   ...")
+                out.append(f"{n:>{width}} | {source[n - 1]}")
+                previous = n
+            blocks.append("\n".join(out))
+        text = "\n\n".join(blocks)
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n[... more code was read but is cut here]"
+        return text
+
+    def contains_identifier(self, name):
+        """Does ``name`` appear as a whole word anywhere in the repository's code?
+
+        Used to catch invented function/variable names in a diagnosis. We do not
+        cache: files may change between calls (e.g. after a patch).
+        """
+        pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+        for file in self._iter_files(self.root):
+            try:
+                if pattern.search(file.read_text(encoding="utf-8")):
+                    return True
+            except UnicodeDecodeError:
+                continue
+        return False
+
 
 def _definitions(file):
     """Yield (qualified_name, kind, start_line, end_line) for a Python file."""
@@ -247,6 +314,43 @@ def _definitions(file):
                     if isinstance(target, ast.Name):
                         yield target.id, "var", child.lineno, child.end_lineno
     yield from visit(tree, "")
+
+
+def _related_hints(spans, lines, start, end, limit=5):
+    """Point at code just outside the read range that the range depends on.
+
+    * "defined elsewhere": module-level names used in the range but defined
+      on other lines of this file (e.g. a constant table above a function);
+    * "used elsewhere": names defined in the range and used on other lines.
+
+    A small, general nudge toward the next useful read; it is not an answer.
+    """
+    top_level = {q: (s, e) for q, kind, s, e in spans if "." not in q}
+    if not top_level:
+        return ""
+    text = "\n".join(lines[start - 1:end])
+    used_here = set(_WORD.findall(text))
+    defined_elsewhere = []
+    for name, (s, e) in top_level.items():
+        if name in used_here and (e < start or s > end):
+            defined_elsewhere.append(f"{name} (lines {s}-{e})")
+    used_elsewhere = []
+    for name, (s, e) in top_level.items():
+        if not (start <= s and e <= end):
+            continue
+        for number, line in enumerate(lines, start=1):
+            if (number < start or number > end) and name in _WORD.findall(line):
+                owner = _enclosing(spans, number)
+                used_elsewhere.append(f"{name} at line {number}" + (f" (in {owner})" if owner else ""))
+    parts = []
+    if defined_elsewhere:
+        parts.append("Defined elsewhere in this file: " + ", ".join(defined_elsewhere[:limit]))
+    if used_elsewhere:
+        parts.append("Used elsewhere in this file: " + ", ".join(used_elsewhere[:limit]))
+    return ("\n[" + "; ".join(parts) + "]") if parts else ""
+
+
+_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _outline(file):

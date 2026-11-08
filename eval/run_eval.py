@@ -43,7 +43,11 @@ def main(argv=None):
     parser.add_argument("--model")
     parser.add_argument("--name", help="result file name (default: model + time)")
     parser.add_argument("--set", nargs="*", metavar="KEY=VALUE", help="override Settings fields")
+    parser.add_argument("--rescore", metavar="NAME",
+                        help="recompute metrics of a saved run (no model calls)")
     args = parser.parse_args(argv)
+    if args.rescore:
+        return rescore(args.rescore)
 
     settings = load_settings(model=args.model)
     if args.set:
@@ -76,6 +80,20 @@ def main(argv=None):
     (RESULTS / f"{name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False))
     (RESULTS / f"{name}.md").write_text(render_markdown(payload))
     print(f"\nSaved eval/results/{name}.md")
+    print(render_markdown(payload))
+
+
+def rescore(name):
+    """Re-apply eval/metrics.py to stored reports (e.g. after improving a metric)."""
+    path = RESULTS / f"{name}.json"
+    payload = json.loads(path.read_text())
+    issues_by_id = {i["id"]: i for i in issue_set.load_issues()}
+    for row in payload["results"]:
+        issue = issues_by_id[row["issue"]]
+        workspace = issue_set.prepare(issue)  # same bug -> same line numbers
+        row["metrics"] = score(issue, row["report"], workspace)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    (RESULTS / f"{name}.md").write_text(render_markdown(payload))
     print(render_markdown(payload))
 
 

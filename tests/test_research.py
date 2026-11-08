@@ -40,9 +40,9 @@ def test_finish_before_reading_is_refused(repo, settings):
 
 def test_repeated_calls_are_not_executed_twice_and_loop_stops(repo, settings):
     same = act("search_code", query="overdue")
-    llm, _ = make_llm(settings, [same, same, same, same])
+    llm, _ = make_llm(settings, [same, same, same])
     research = run_research(ISSUE, repo, llm, settings)
-    assert [s.status for s in research.steps] == ["ok", "repeated", "repeated", "repeated"]
+    assert [s.status for s in research.steps] == ["ok", "repeated", "repeated"]
     assert research.stop_reason.startswith("stuck")
     assert not research.finished
 
@@ -92,3 +92,18 @@ def test_two_invalid_replies_raise(repo, settings):
     llm, _ = make_llm(settings, ["nope", {"tool": "rm -rf"}])
     with pytest.raises(LLMError):
         run_research(ISSUE, repo, llm, settings)
+
+
+def test_rereading_known_lines_counts_as_repeat(repo, settings):
+    llm, _ = make_llm(settings, [
+        act("read_file", path="tasks/service.py", start_line=90, end_line=110),
+        act("read_file", path="tasks/service.py", start_line=95, end_line=100),
+        act("finish"),
+    ])
+    research = run_research(ISSUE, repo, llm, settings)
+    assert [s.status for s in research.steps] == ["ok", "repeated", "ok"]
+
+
+def test_thought_length_is_limited_in_the_schema():
+    from lca.research import ACTION_SCHEMA
+    assert ACTION_SCHEMA["properties"]["thought"]["maxLength"] == 200

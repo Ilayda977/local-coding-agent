@@ -213,3 +213,13 @@ desteği ve aynı döngüyle "bu repoyu özetle" modu. Ayrı bir pipeline değil
 3. **Her adım sonunda commit.** Mesajda adım numarası: `Adım 3: agent loop`.
 4. **Tek durum belgesi:** `README.md` + bu dosya. Faz başına ayrı belge yok.
 5. **Her yeni kavramı kendi cümlelerinle** bu dosyanın sonuna bir paragraf yaz.
+
+---
+
+## 7. İlerleme günlüğü (ölçümler `eval/results/` altında)
+
+| Adım | Sonuç | Kanıt |
+| --- | --- | --- |
+| 2 – Araçlar | 4 araç + repo sınırı, birim testlerle doğrulandı | `tests/test_tools.py` |
+| 3 – Agent döngüsü | 7B: doğru dosyayı okuma **5/5** (kriter ≥4/5 ✅) | `step3_research_7b.md` |
+| 4 – Diagnosis | 7B, tam sohbet geçmişiyle **1/5**; durum özetiyle (compact) **3/5**. Kriter ≥4/5 ❌ (dürüst kayıt) | `step4_diagnosis_7b.md`, `step4_state_7b.md` |

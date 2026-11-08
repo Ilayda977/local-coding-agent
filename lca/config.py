@@ -21,6 +21,7 @@ class Settings:
     # Agent loop guardrails. Small numbers on purpose: a lost agent should stop early.
     max_steps: int = 12            # research steps before we force a diagnosis
     max_read_lines: int = 80       # one read_file call never returns more than this
+    min_read_lines: int = 20       # tiny reads are widened to give the model context
     max_search_results: int = 30
     max_observation_chars: int = 4000
     max_evidence_retries: int = 1  # chances to fix a diagnosis that cites unread code
