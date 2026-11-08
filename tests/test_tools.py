@@ -72,7 +72,7 @@ def test_list_files_is_sorted_and_recursive(repo):
 def test_search_code_reports_file_and_line(repo):
     result = repo.search_code("limit")
     assert "pkg/service.py:1: LIMIT = 3" in result
-    assert "pkg/service.py:5: return items[:LIMIT]" in result
+    assert "pkg/service.py:5 (in Service.run): return items[:LIMIT]" in result
 
 
 def test_search_without_matches_gives_a_hint(repo):
@@ -132,3 +132,20 @@ def test_run_tool_rejects_unknown_tools(repo):
 def test_run_tool_tolerates_swapped_argument_names(repo):
     # Small models sometimes send {"query": ...} to find_symbol; be forgiving.
     assert "Service.run" in run_tool(repo, "find_symbol", {"query": "run"})
+
+
+def test_search_names_the_enclosing_function(repo):
+    assert "pkg/service.py:5 (in Service.run): return items[:LIMIT]" in repo.search_code("items[")
+
+
+def test_repo_map_lists_definitions_per_file(repo):
+    text = repo.repo_map()
+    assert "pkg/service.py: LIMIT, class Service(run), helper" in text
+    assert "SECRET" not in text  # ignored folders stay out
+
+
+def test_relevant_args_drops_noise_and_fixes_swapped_names():
+    from lca.tools import relevant_args
+    assert relevant_args("search_code", {"query": "x", "start_line": 1, "end_line": None}) == {"query": "x"}
+    assert relevant_args("search_code", {"name": "x"}) == {"query": "x"}
+    assert relevant_args("finish", {"path": "a.py"}) == {}

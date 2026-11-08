@@ -108,7 +108,11 @@ class Repo:
         return header + ":\n" + "\n".join(shown)
 
     def search_code(self, query, path="."):
-        """Case-insensitive text search. Returns ``file:line: code`` lines."""
+        """Case-insensitive text search. Returns ``file:line (in function): code`` lines.
+
+        Naming the enclosing function was a fix after our first live run: the
+        model found the right line but did not know what to read next.
+        """
         query = (query or "").strip()
         if not query:
             raise ToolError("search_code needs a non-empty 'query'")
@@ -116,9 +120,12 @@ class Repo:
         needle = query.lower()
         hits = []
         for file in self._iter_files(start):
+            spans = list(_definitions(file)) if file.suffix == ".py" else []
             for number, line in enumerate(self._read_lines(file), start=1):
                 if needle in line.lower():
-                    hits.append(f"{self.relative(file)}:{number}: {line.strip()[:160]}")
+                    owner = _enclosing(spans, number)
+                    where = f" (in {owner})" if owner else ""
+                    hits.append(f"{self.relative(file)}:{number}{where}: {line.strip()[:140]}")
         if not hits:
             hint = " Try one identifier (e.g. a function or variable name) instead of a sentence." \
                 if " " in query else " Try a shorter or different name."
@@ -145,11 +152,13 @@ class Repo:
                 elif wanted.lower() in short.lower():
                     similar.append(location)
         if exact:
-            return f"Definitions of '{name}':\n" + "\n".join(exact[: self.max_search_results])
+            return (f"Definitions of '{name}':\n" + "\n".join(exact[: self.max_search_results])
+                    + "\nNext: read_file with that path and line range.")
         if similar:
             return (f"No exact definition of '{name}'. Similar names:\n"
                     + "\n".join(similar[:10]))
-        return f"No definition of '{name}' found. Try search_code to find where it is used."
+        return (f"No definition of '{name}' found (it may be an attribute or field). "
+                "Use search_code to find where it is used.")
 
     def read_file(self, path, start_line=1, end_line=None):
         """Return numbered lines ``start_line..end_line`` (at most max_read_lines)."""
@@ -176,6 +185,27 @@ class Repo:
         rel = self.relative(file)
         self.reads.append(ReadRecord(rel, start, end))
         return f"{rel} lines {start}-{end} of {total}:\n{body}{note}"
+
+    def repo_map(self, max_chars=3000):
+        """A compact table of contents: each file with the names it defines.
+
+        This is the "repo map" idea from the assignment's troubleshooting table.
+        It costs a few hundred tokens and tells the model where things live
+        without loading any code.
+        """
+        lines = []
+        for file in self._iter_files(self.root):
+            rel = self.relative(file)
+            if file.suffix != ".py" or file.name == "__init__.py" and not file.stat().st_size:
+                continue  # empty __init__ files and configs tell the model nothing
+            if rel.startswith("tests/") or "/tests/" in rel:
+                lines.append(rel)  # test names are long and noisy; the file name is enough
+                continue
+            lines.append(f"{rel}: {_outline(file)}" if _outline(file) else rel)
+        text = "\n".join(lines)
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n[... map cut; use list_files for the rest]"
+        return text
 
     # ------------------------------------------------------------------
     # Helpers used by the controller (not by the model)
@@ -219,6 +249,40 @@ def _definitions(file):
     yield from visit(tree, "")
 
 
+def _outline(file):
+    """'class TaskService(create, assign), paginate, MAX_PER_PAGE' for one file."""
+    classes, items = {}, []
+    for qualified, kind, _start, _end in _definitions(file):
+        parts = qualified.split(".")
+        if kind == "class" and len(parts) == 1:
+            classes[qualified] = []
+            items.append(qualified)
+        elif len(parts) == 2 and parts[0] in classes and not parts[1].startswith("__"):
+            classes[parts[0]].append(parts[1])
+        elif len(parts) == 1 and kind == "def":
+            items.append(qualified)
+        elif len(parts) == 1 and kind == "var" and qualified.isupper():
+            items.append(qualified)  # constants such as ALLOWED_TRANSITIONS
+    rendered = []
+    for item in items:
+        if item in classes:
+            methods = classes[item]
+            rendered.append(f"class {item}({', '.join(methods)})" if methods else f"class {item}")
+        else:
+            rendered.append(item)
+    return ", ".join(rendered)
+
+
+def _enclosing(spans, line):
+    """Name of the innermost function/class whose lines contain ``line``."""
+    best = None
+    for qualified, kind, start, end in spans:
+        if kind != "var" and start <= line <= end:
+            if best is None or start >= best[1]:
+                best = (qualified, start)
+    return best[0] if best else None
+
+
 # ----------------------------------------------------------------------
 # Description of the tools, exactly as the model will see it.
 # Clear, short descriptions are one of the cheapest ways to help a small model.
@@ -231,6 +295,25 @@ read_file(path, start_line, end_line) -> numbered source lines, at most 80 per c
 finish()                        -> stop researching; you have read the code that explains the issue"""
 
 TOOL_NAMES = ["list_files", "search_code", "find_symbol", "read_file", "finish"]
+
+
+TOOL_ARGS = {
+    "list_files": ("path",),
+    "search_code": ("query", "path"),
+    "find_symbol": ("name",),
+    "read_file": ("path", "start_line", "end_line"),
+    "finish": (),
+}
+
+
+def relevant_args(tool, args):
+    """Drop arguments a tool does not use (models like to add start_line to searches)."""
+    args = args or {}
+    if tool == "search_code" and not args.get("query") and args.get("name"):
+        args = {**args, "query": args["name"]}
+    if tool == "find_symbol" and not args.get("name") and args.get("query"):
+        args = {**args, "name": args["query"]}
+    return {k: args[k] for k in TOOL_ARGS.get(tool, ()) if args.get(k) not in (None, "")}
 
 
 def run_tool(repo, tool, args):
