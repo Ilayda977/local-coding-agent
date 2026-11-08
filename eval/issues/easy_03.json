@@ -1,0 +1,19 @@
+{
+  "id": "easy_03",
+  "difficulty": "easy",
+  "title_tr": "Engellenmiş görev tekrar başlatılamıyor",
+  "issue": "A task that was marked BLOCKED cannot be moved back to IN_PROGRESS once the blocker is resolved; the service raises 'cannot move task from blocked to in_progress'. Resuming a blocked task should be allowed.",
+  "bug": {
+    "file": "tasks/workflow.py",
+    "find": "    Status.BLOCKED: {Status.TODO, Status.IN_PROGRESS},\n",
+    "replace": "    Status.BLOCKED: {Status.TODO},\n"
+  },
+  "ground_truth": {
+    "relevant_files": ["tasks/workflow.py"],
+    "root_cause": "ALLOWED_TRANSITIONS[Status.BLOCKED] does not contain Status.IN_PROGRESS, so ensure_transition rejects BLOCKED -> IN_PROGRESS.",
+    "fix": "Add Status.IN_PROGRESS to the allowed transitions of Status.BLOCKED."
+  },
+  "failing_tests": [
+    "tests/test_workflow.py::test_blocked_task_can_resume"
+  ]
+}

@@ -18,10 +18,14 @@ ollama pull qwen2.5-coder:7b
 ollama pull qwen2.5-coder:3b
 ```
 
-## Testler
+## Testler ve issue seti
 
 ```bash
-./venv/bin/python -m pytest
+./venv/bin/python -m pytest                 # agent testleri (lca/, Adım 2'den itibaren)
+./venv/bin/python -m pytest taskflow        # örnek repo testleri
+./venv/bin/python eval/issues.py list       # issue listesi
+./venv/bin/python eval/issues.py check      # her bug kendi testini kırıyor mu?
+./venv/bin/python eval/issues.py prepare easy_01   # bug'lı kopya: eval/workspace/easy_01
 ```
 
 ## Klasörler
@@ -29,6 +33,7 @@ ollama pull qwen2.5-coder:3b
 | Klasör | İçerik |
 | --- | --- |
 | `lca/` | Yeni agent (Adım 2'de oluşturulacak) |
-| `taskflow/` | Agent'ın üzerinde çalışacağı örnek backend (Adım 1) |
-| `eval/` | Issue seti ve ölçüm scripti (Adım 1 ve sonrası) |
+| `taskflow/` | Agent'ın üzerinde çalışacağı örnek backend (temiz, bug'sız hali) |
+| `eval/issues/` | Issue seti: issue metni, enjekte edilecek bug, ground truth |
+| `eval/workspace/` | Bug'lı geçici kopyalar (git'e girmez) |
 | `legacy/` | Eski 8 aşamalı mimari; yalnızca referans için |
