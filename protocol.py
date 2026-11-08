@@ -42,6 +42,10 @@ DEFAULT_NUM_PREDICT = _positive_int_setting("LOCAL_CODING_AGENT_NUM_PREDICT", 20
 # çıkma ihtimalini azaltır. VERIFY daha geniştir; üç parçalı sorularda JSON'un
 # 768 token civarında yarım kalması gerçek denemelerde gözlendi.
 STAGE_NUM_PREDICT = {
+    "PATCH": 1536,
+    "SUMMARY_SELECT": 256,
+    "SUMMARY": 1536,
+    "CHANGE_PLAN": 768,
     "CONTRACT": 800,
     "INVESTIGATE": 1400,
     "INDEPENDENT_READING": 1400,

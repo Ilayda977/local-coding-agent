@@ -4,6 +4,7 @@ import re
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path
+from itertools import islice
 from navigation import symbol_match_rank
 
 # Güvenlik sınırı, komutun hangi klasörden çalıştırıldığına değil bu dosyanın
@@ -11,7 +12,10 @@ from navigation import symbol_match_rank
 PROJECT_ROOT = Path(__file__).resolve().parent
 MAX_READ_LINES = 80
 MAX_SEARCH_RESULTS = 50
-EXCLUDED_DIRECTORIES = {".git", "venv", "__pycache__"}
+EXCLUDED_DIRECTORIES = {".git", "venv", ".venv", "__pycache__", "node_modules"}
+MAX_SOURCE_BYTES = 1_000_000
+MAX_LIST_ENTRIES = 200
+MAX_DIRECTORY_SCAN = 5000
 SOURCE_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".c", ".h", ".cpp"}
 
 
@@ -22,9 +26,22 @@ def _resolve_safe_path(target_path):
         if not candidate.is_absolute():
             candidate = PROJECT_ROOT / candidate
         resolved_path = candidate.resolve()
-        resolved_path.relative_to(PROJECT_ROOT)
+        relative = resolved_path.relative_to(PROJECT_ROOT)
+        # Repo sınırı tek başına yeterli değil: metadata/ortam sırlarını bir
+        # symlink üzerinden de modele açmayız. Örnek .env dosyaları okunabilir.
+        parts = [part.casefold() for part in relative.parts]
+        if any(part in {name.casefold() for name in EXCLUDED_DIRECTORIES} for part in parts):
+            return None
+        name = relative.name.casefold()
+        if name == '.env' or (name.startswith('.env.')
+                             and name not in {'.env.example', '.env.sample'}):
+            return None
+        if any(part in {'.ssh', '.aws', '.gnupg'} for part in parts):
+            return None
+        if name.startswith(('id_rsa', 'id_ed25519', 'id_ecdsa', 'credentials.')) or relative.suffix.casefold() in {'.pem', '.key', '.p12', '.pfx'}:
+            return None
         return resolved_path
-    except (TypeError, ValueError, OSError):
+    except (TypeError, ValueError, OSError, RuntimeError):
         return None
 
 
@@ -43,6 +60,15 @@ def _is_safe_path(target_path):
 def _display_path(path):
     """Modelin gereksiz mutlak yol görmemesi için proje-içi yolu göster."""
     return str(path.relative_to(PROJECT_ROOT)) or "."
+
+
+def _searchable_source(path):
+    """Skip special/huge files before parsing; never open FIFOs or device nodes."""
+    safe = _resolve_safe_path(path)
+    try:
+        return safe is not None and safe.is_file() and safe.stat().st_size <= MAX_SOURCE_BYTES
+    except OSError:
+        return False
 
 
 def _result_priority(file_path, line, query):
@@ -84,12 +110,23 @@ def list_files(directory_path="."):
     if not directory.is_dir():
         return f"HATA: {_display_path(directory)} bir klasör değil veya bulunamadı."
 
-    entries = sorted(
-        entry.name
-        for entry in directory.iterdir()
-        if not entry.name.startswith(".") and entry.name not in EXCLUDED_DIRECTORIES
-    )
-    return f"{_display_path(directory)} içindeki dosya ve klasörler:\n" + "\n".join(entries)
+    try:
+        scanned = list(islice(directory.iterdir(), MAX_DIRECTORY_SCAN + 1))
+        scan_truncated = len(scanned) > MAX_DIRECTORY_SCAN
+        entries = sorted(
+            entry.name
+            for entry in scanned[:MAX_DIRECTORY_SCAN]
+            if not entry.name.startswith(".") and entry.name not in EXCLUDED_DIRECTORIES
+            and _resolve_safe_path(entry) is not None
+        )
+    except OSError:
+        return "HATA: Klasör listelenemedi; erişim iznini kontrol edin."
+    suffix = ""
+    if len(entries) > MAX_LIST_ENTRIES:
+        suffix = f"\nNOT: {len(entries)} girdinin ilk {MAX_LIST_ENTRIES} tanesi gösterildi."
+    if scan_truncated:
+        suffix += '\nNOT: Klasör tarama sınırı uygulandı; liste ve sayı kısmidir.'
+    return f"{_display_path(directory)} içindeki dosya ve klasörler:\n" + "\n".join(entries[:MAX_LIST_ENTRIES]) + suffix
 
 
 def _path_pattern_matches(path, pattern):
@@ -144,7 +181,8 @@ def find_file_matches(file_name, directory="."):
                     exact.append(relative)
             elif relative == query or match_path == query or name == query:
                 exact.append(relative)
-            elif relative.casefold() == query.casefold() or name.casefold() == query.casefold():
+            elif (relative.casefold() == query.casefold() or match_path.casefold() == query.casefold()
+                  or name.casefold() == query.casefold()):
                 fallback.append(relative)
     matches = sorted(set(exact or fallback))
     return {'query': query, 'directory': _display_path(search_directory),
@@ -186,9 +224,10 @@ def read_file(file_path, start_line, end_line):
         return f"HATA: Tek okumada en fazla {MAX_READ_LINES} satır istenebilir."
 
     try:
+        if path.stat().st_size > MAX_SOURCE_BYTES:
+            return "HATA: Dosya okuma boyut sınırını aşıyor."
         with path.open("r", encoding="utf-8") as file:
-            lines = file.readlines()
-        selected_lines = lines[start_line - 1:end_line]
+            selected_lines = list(islice(file, start_line - 1, end_line))
         return "".join(selected_lines)
     except UnicodeDecodeError:
         return f"HATA: {_display_path(path)} metin dosyası olarak okunamadı."
@@ -223,7 +262,7 @@ def search_code(query, directory="."):
                 continue
                 
             file_path = Path(root) / file_name
-            if _resolve_safe_path(file_path) is None:
+            if not _searchable_source(file_path):
                 continue
             
             try:
@@ -310,7 +349,7 @@ def find_symbol(symbol_name, directory="."):
                 continue
                 
             file_path = Path(root) / file_name
-            if _resolve_safe_path(file_path) is None:
+            if not _searchable_source(file_path):
                 continue
             
             try:
@@ -403,7 +442,7 @@ def find_references(symbol_name, directory="."):
             path = Path(root) / name
             if name.startswith(".") or path.suffix.lower() not in SOURCE_EXTENSIONS:
                 continue
-            if _resolve_safe_path(path) is None:
+            if not _searchable_source(path):
                 continue
             try:
                 source = path.read_text(encoding="utf-8")
@@ -424,7 +463,8 @@ def find_references(symbol_name, directory="."):
                     )
                     reference_lines.update(
                         node.lineno for node in ast.walk(tree)
-                        if isinstance(node, ast.Attribute) and node.attr == symbol_name
+                        if isinstance(node, ast.Attribute)
+                        and (ast.unparse(node) == symbol_name or ('.' not in symbol_name and node.attr == symbol_name))
                         and isinstance(node.ctx, ast.Load)
                     )
             else:
@@ -469,7 +509,7 @@ def find_calls(call_name, directory="."):
             path = Path(root) / name
             if name.startswith(".") or path.suffix.lower() != ".py":
                 continue
-            if _resolve_safe_path(path) is None:
+            if not _searchable_source(path):
                 continue
             try:
                 source = path.read_text(encoding="utf-8")
@@ -513,7 +553,7 @@ def find_tests(symbol_name, directory="."):
                 or file_name.endswith("_test.py")
                 or "tests" in path.parts
             )
-            if not is_test or path.suffix != ".py" or _resolve_safe_path(path) is None:
+            if not is_test or path.suffix != ".py" or not _searchable_source(path):
                 continue
             try:
                 text = path.read_text(encoding="utf-8")

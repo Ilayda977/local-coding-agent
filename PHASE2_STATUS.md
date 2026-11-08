@@ -1,4 +1,11 @@
-# Güncel durum — 11 Eylül 2026
+# Faz 2 — tarihsel durum ve güncel inceleme bağlantısı
+
+18 Eylül 2026: controller, kanıt bağımlılığı ve kaynak sınırları tekrar incelendi;
+somut regresyonlar testlerle giderildi. Güncel değişiklik/test/canlı model kaydı
+IMPLEMENTATION_REVIEW.md dosyasındadır. Aşağıdaki sayılar önceki sürümlere aittir;
+güncel 4/5 kabul başarısı veya sıfır halüsinasyon iddiası değildir.
+
+## 11 Eylül 2026 kaydı
 
 Bu dosyanın aşağıdaki bölümleri tarihsel çalışma notlarıdır. Birbirinden farklı
 sürüm ve test sayılarını içerir; tek bir güncel kabul raporu değildir.

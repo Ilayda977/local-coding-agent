@@ -1,7 +1,6 @@
 """Sıralı, read-only ajan: keşif -> okuma -> kanıt -> ayrı cevap kontrolü."""
 import ast
 import builtins
-import argparse
 import json
 import keyword
 import os
@@ -10,7 +9,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 
 import tools
+from terminal_safety import terminal_text
 from reference_checks import check_draft, callable_statement_index
+from citation_checks import without_verified_locations
 from navigation import ROUTE_INSTRUCTION, ASSESS_INSTRUCTION, REPAIR_INSTRUCTION, DRAFT_INSTRUCTION, VERIFY_INSTRUCTION, FILE_SUFFIXES
 from evidence import EvidenceError, EvidenceStore
 from protocol import (
@@ -77,6 +78,8 @@ class AgentResult:
     diagnosis: dict | None = None
     repository: dict = field(default_factory=dict)
     file_searches: list = field(default_factory=list)
+    change_plan: dict | None = None
+    patch_preview: dict | None = None
 
     def model_dump(self):
         return asdict(self)
@@ -151,7 +154,9 @@ def _numeric_grounding_issues(draft, store, question):
         # Konum metadatası kodun değeri değildir. Satır numaralarını controller
         # ayrıca gösterir; bunlar sayısal bir davranış iddiasını destekleyemez.
         allowed = question_numbers | _number_tokens(evidence_text)
-        unsupported = sorted(_number_tokens(claim.answer) - allowed)
+        numeric_text, location_issues = without_verified_locations(claim.answer, citations)
+        issues.extend(location_issues)
+        unsupported = sorted(_number_tokens(numeric_text) - allowed)
         if unsupported:
             issues.append(
                 f"İddia {index} içindeki sayısal değer(ler) bağlı kanıtta veya soruda yok: "
@@ -171,7 +176,10 @@ def _numeric_citation_repair_hints(draft, store, question):
     for index, claim in enumerate(draft.claims, 1):
         citations = store.block_citations(claim.evidence_ids)
         cited = '\n'.join(item['quote'] for item in citations)
-        missing = _number_tokens(claim.answer) - _number_tokens(cited) - _number_tokens(question)
+        numeric_text, location_issues = without_verified_locations(claim.answer, citations)
+        if location_issues:
+            return []
+        missing = _number_tokens(numeric_text) - _number_tokens(cited) - _number_tokens(question)
         for number in sorted(missing):
             candidates = [item['id'] for item in blocks
                           if number in _number_tokens(item['quote'])]
@@ -477,7 +485,8 @@ def _prioritize_route_searches(searches, question, print_fn=builtins.print):
     return ordered
 
 
-def run_agent(issue_text, gateway=None, json_output=False, repository_info=None):
+def run_agent(issue_text, gateway=None, json_output=False, repository_info=None, plan_changes=False,
+              patch_changes=False):
     """Aşamalar atlanamaz; araştırma hedefleri ve kaynak seçimi modele aittir."""
     gateway = gateway or ModelGateway(
         MODEL_NAME, think=MODEL_THINK, fast_model_name=FAST_MODEL_NAME,
@@ -487,11 +496,13 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
     listing_call = {"tool": "list_files", "directory_path": "."}
     listing_performed = False
     confidence = 0.0
+    change_plan = None
+    patch_preview = None
 
     def print(*args, **kwargs):
         # --json yalnız tek makine-okunabilir sonuç üretir, aşama metni karıştırmaz.
         if not json_output:
-            builtins.print(*args, **kwargs)
+            builtins.print(*(terminal_text(value) for value in args), **kwargs)
 
     def stage(name):
         stages.append(name)
@@ -511,6 +522,8 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
             model_trace=gateway.trace.copy(),
             repository=repository_info or {'path': str(tools.PROJECT_ROOT)},
             file_searches=file_searches or [],
+            change_plan=change_plan,
+            patch_preview=patch_preview,
         )
         if result.findings:
             evidence = [citation for finding in result.findings for citation in finding["evidence"]]
@@ -528,6 +541,8 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
             "diagnosis": result.diagnosis,
             "repository": result.repository,
             "file_searches": result.file_searches,
+            "change_plan": result.change_plan,
+            "patch_preview": result.patch_preview,
         }
         if json_output:
             builtins.print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -575,6 +590,18 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
             print("\n[SONUÇ ÜRETİLEMEDİ]")
             print(f"- Neden: {result.reason or 'Yeterli ve doğrulanmış kanıt bulunamadı.'}")
             print(f"- Durum: {result.status}")
+        if not json_output and result.change_plan is not None:
+            print('\n[DEĞİŞİKLİK PLANI — DOSYA DEĞİŞTİRİLMEDİ]')
+            print(f"- Durum: {result.change_plan['status']}")
+            print(f"- Gerekçe: {result.change_plan['reason']}")
+            for change in result.change_plan['changes']:
+                for label, key in [('Dosya', 'file'), ('Değişiklik', 'change'),
+                                   ('Beklenen sonuç', 'expected_result'), ('Risk', 'risk'),
+                                   ('Önerilen kontrol', 'validation')]:
+                    print(f'- {label}: {change[key]}')
+            print('[NOT] Bu yalnız öneridir; onay alınmadı, patch veya test çalıştırılmadı.')
+        if not json_output and result.status == 'patch_unavailable':
+            print(f'[PATCH ÜRETİLEMEDİ] {result.reason}')
         return result
 
     working_question = _normalize_question(issue_text)
@@ -623,6 +650,11 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
             + [f"İlk arama: {item.tool}({item.query!r})" for item in route.searches],
         )
         requests = route.searches = _prioritize_route_searches(route.searches, working_question, print_fn=print)
+        from research_routing import initial_searches
+        requests = initial_searches(working_question, route, requests)
+        if requests != route.searches:
+            print('[KAYNAK ÖNCELİĞİ] Sorudaki açık kod adı önce tanım aramasıyla kontrol edilecek.')
+            route.searches = requests
         if route.intent == 'list_files':
             stage('SEARCH')
             observations = []
@@ -926,8 +958,15 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
                 ])
                 findings = _findings(draft, store)
                 numeric_issues = _numeric_grounding_issues(draft, store, working_question)
-            mechanism_issues = _mechanism_grounding_issues(draft, store, working_question)
-            grounding_issues = numeric_issues + mechanism_issues + _reference_grounding_issues(draft, store)
+            # Exact syntax in prose is not a truth criterion. These diagnostics
+            # are reviewer context, not automatic rejection of paraphrases or
+            # negative claims such as "this function does not use os.walk".
+            interpretation_hints = _mechanism_grounding_issues(draft, store, working_question)
+            reference_issues = _reference_grounding_issues(draft, store)
+            # Unknown dotted APIs are semantic hints; file/symbol provenance
+            # and numeric citations remain hard controller checks.
+            api_hints = [item for item in reference_issues if 'doğrudan referans olarak doğrulanamadı' in item]
+            grounding_issues = numeric_issues + [item for item in reference_issues if item not in api_hints]
             decision(
                 "KANIT BAĞLAMA — GROUNDING",
                 grounding_issues or ["Sayısal iddialar kendi kanıtlarıyla eşleşiyor."],
@@ -956,6 +995,7 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
                     "VERIFY", Review,
                     VERIFY_INSTRUCTION + trace_review_instruction,
                     {"question": working_question, "findings": findings,
+                     "non_authoritative_review_hints": interpretation_hints + api_hints,
                      "callable_statements": callable_statement_index([
                          citation for finding in findings for citation in finding['evidence']
                      ]),
@@ -994,6 +1034,28 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
                 )
             store.assert_unchanged()
             if review.supported and review.complete and not review.issues:
+                if plan_changes or patch_changes:
+                    from patch_protocol import propose_change
+                    stage('CHANGE_PLAN')
+                    try:
+                        change_plan = propose_change(working_question, findings, store, gateway)
+                        if patch_changes and change_plan['status'] == 'proposed':
+                            from patch_workflow import propose_patch, preview_payload
+                            stage('PATCH')
+                            try:
+                                patch_preview = preview_payload(propose_patch(
+                                    working_question, change_plan, store, gateway))
+                            except (ProtocolError, EvidenceError, ValueError) as error:
+                                # Keep a valid plan for inspection. A patch
+                                # failure is not a planning failure or a write.
+                                store.assert_unchanged()
+                                return finish('patch_unavailable', findings=findings, reason=str(error))
+                    except (ProtocolError, EvidenceError, ValueError) as error:
+                        change_plan = {'status': 'unavailable', 'reason': str(error),
+                                       'changes': [], 'applied': False, 'requires_human_review': True}
+                    store.assert_unchanged()
+                    if change_plan['status'] in {'unavailable', 'insufficient_evidence'}:
+                        return finish('patch_unavailable', findings=findings, reason=change_plan['reason'])
                 stage("RESULT")
                 return finish(
                     "review_required", findings=findings,
@@ -1006,20 +1068,6 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
             review_feedback = {"untrusted_correction_requests": [_short(item, 300) for item in review_issues]}
             if recovery_rounds >= MAX_RECOVERY_ROUNDS:
                 return finish("insufficient_evidence", reason="; ".join(review_issues))
-
-            if mechanism_issues:
-                # İstenen predicate zaten okunmuş AST'den controller tarafından
-                # çıkarıldı. Eksik olan yeni kaynak değil, taslağın ifadesidir;
-                # modeli gereksiz repository aramasına göndermeden düzelt.
-                stage("RECOVER")
-                decision("AJAN KARARI — RECOVER", [
-                    "İstenen koşul okunmuş kaynakta mevcut; yeni arama yapılmayacak.",
-                    "Eski yeterlilik iddiası aktarılmadan senaryonun gerçek dönüşü yeniden değerlendirilecek.",
-                ])
-                recovery_rounds += 1
-                research_needed = False
-                draft_stage = "REVISE"
-                continue
 
             location_claim = route.intent == "trace_call" and any(
                 re.search(r"\b(?:satır|line)\s*\d+", claim.answer, re.IGNORECASE)
@@ -1107,31 +1155,5 @@ def run_agent(issue_text, gateway=None, json_output=False, repository_info=None)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Staged read-only local coding agent")
-    parser.add_argument("issue", help="Araştırılacak soru")
-    parser.add_argument("--repo", default=str(tools.PROJECT_ROOT),
-                        help="Yerel klasör veya public https://github.com/SAHIP/REPO bağlantısı.")
-    parser.add_argument("--model", default=MODEL_NAME, help="Ollama model adı.")
-
-    parser.add_argument(
-        "--json", action="store_true",
-        help="Kısa kullanıcı çıktısı yerine alıntılar dahil ayrıntılı JSON yazdır.",
-    )
-    args = parser.parse_args()
-    from repository_source import prepare_repository, RepositorySourceError
-    try:
-        selected_repo = prepare_repository(args.repo)
-    except RepositorySourceError as error:
-        parser.error(str(error))
-    tools.PROJECT_ROOT = selected_repo.path
-    if not args.json:
-        print(f'[REPOSITORY] {selected_repo.path}')
-        if selected_repo.commit:
-            print(f'[COMMIT] {selected_repo.commit}')
-            print('[NOT] Yeni yerel kopya kullanılıyor; proje kodu veya testleri çalıştırılmayacak.')
-    runner = run_agent
-    result = runner(args.issue, json_output=args.json, repository_info=selected_repo.metadata(), gateway=ModelGateway(
-        args.model, think=MODEL_THINK, fast_model_name=FAST_MODEL_NAME,
-    ))
-    # İnceleme notu taşıyan fakat cevap üreten çalışma CLI açısından tamamlanmıştır.
-    raise SystemExit(_cli_exit_code(result.status))
+    from cli import main
+    raise SystemExit(main(runner=run_agent))

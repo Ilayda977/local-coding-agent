@@ -63,6 +63,22 @@ def recover(action="revise", query=None):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_planning_is_opt_in_and_preserves_diagnosis(self):
+        from test_patch_protocol import proposal
+        gateway = ScriptedGateway([
+            plan(), {'candidate_ids': ['C1']}, ready(), draft(), review(), proposal(),
+        ])
+        before = (self.root / 'normalizer.py').read_bytes()
+        with redirect_stdout(io.StringIO()):
+            result = agent.run_agent('Fonksiyonu incele ve küçük değişiklik öner.',
+                                     gateway=gateway, plan_changes=True)
+        self.assertEqual(result.status, 'review_required')
+        self.assertEqual(result.change_plan['status'], 'proposed')
+        self.assertFalse(result.change_plan['applied'])
+        self.assertIn('CHANGE_PLAN', result.stages)
+        self.assertEqual((self.root / 'normalizer.py').read_bytes(), before)
+        self.assertTrue(result.diagnosis)
+
     def test_draft_receives_original_requirements_without_assessment_conclusion(self):
         question = 'normalize hangi değeri döndürür? İlgili kodu göster.'
         assessment = ready()

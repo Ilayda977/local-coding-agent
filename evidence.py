@@ -58,6 +58,57 @@ def source_lines(text):
     return lines[:-1] if lines and lines[-1] == "" else lines
 
 
+def _import_targets(file, tree, references):
+    """Resolve explicit local imports only, without importing/executing the repo.
+
+    An unrelated file defining the same name is NOT a dependency. Unresolved
+    aliases/dynamic imports stay unknown and can be researched by the model.
+    """
+    result = []
+
+    def module_path(parts):
+        if not parts:
+            return None
+        relative = Path(*parts)
+        for name in (relative.with_suffix('.py'), relative / '__init__.py'):
+            path = tools._resolve_safe_path(name)
+            if path is not None and tools._searchable_source(path):
+                return str(path.relative_to(tools.PROJECT_ROOT))
+        return None
+
+    for statement in tree.body:
+        if isinstance(statement, ast.Import):
+            for alias in statement.names:
+                binding = alias.asname or alias.name
+                for reference in references:
+                    if reference.startswith(binding + '.'):
+                        path = module_path(alias.name.split('.'))
+                        if path:
+                            result.append((path, reference[len(binding) + 1:]))
+        elif isinstance(statement, ast.ImportFrom):
+            base = []
+            if statement.level:
+                base = list(Path(file).parent.parts)
+                # A relative import cannot escape the selected repository.
+                if statement.level - 1 > len(base):
+                    continue
+                base = base[:len(base) - statement.level + 1]
+            base += statement.module.split('.') if statement.module else []
+            for alias in statement.names:
+                if alias.name == '*':
+                    continue
+                binding = alias.asname or alias.name
+                for reference in references:
+                    if reference != binding and not reference.startswith(binding + '.'):
+                        continue
+                    rest = reference[len(binding):].lstrip('.')
+                    submodule = module_path([*base, alias.name]) if rest else None
+                    path = submodule or module_path(base)
+                    if path:
+                        result.append((path, rest if submodule else '.'.join(filter(None, (alias.name, rest)))))
+    return list(dict.fromkeys(result))
+
+
 def context_range(text, line, is_python=True, limit=None):
     """Seçilen tanımın gövdesi; atamalar için ilgili statement; diğer dillerde küçük pencere."""
     limit = limit or tools.MAX_READ_LINES
@@ -118,7 +169,10 @@ class EvidenceStore:
         scope = ""
         if path.suffix.lower() == ".py":
             try:
-                tree = ast.parse(self._path(file).read_text(encoding="utf-8"))
+                path = self._path(file)
+                if not tools._searchable_source(path):
+                    raise EvidenceError("Dosya kaynak inceleme boyut sınırını aşıyor.")
+                tree = ast.parse(path.read_text(encoding="utf-8"))
                 enclosing = [
                     node for node in ast.walk(tree)
                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -205,7 +259,7 @@ class EvidenceStore:
         candidate = self.candidates[candidate_id]
         path = self._path(candidate.file)
         # AST analizi yalnız controller'da; modele tüm dosya gönderilmez.
-        if path.stat().st_size > 1_000_000:
+        if path.stat().st_size > tools.MAX_SOURCE_BYTES:
             raise EvidenceError("Dosya AST/context inceleme boyut sınırını aşıyor.")
         raw = path.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
@@ -223,13 +277,15 @@ class EvidenceStore:
                                 "start_line": start, "end_line": end})
         if content.startswith("HATA:") or self._path(candidate.file).read_bytes() != raw:
             raise EvidenceError("Kaynak okunamadı veya okuma sırasında değişti.")
-        self.file_hashes[candidate.file] = digest
-        self.read_candidates.add(candidate_id)
         existing = {(line.file, line.line) for line in self.lines.values()}
         new_lines = [(start + offset, row) for offset, row in enumerate(source_lines(content))
                      if (candidate.file, start + offset) not in existing]
         if sum(len(item.text) for item in self.lines.values()) + sum(len(row) for _, row in new_lines) > self.max_chars:
             raise EvidenceError("Kaynak bağlam bütçesi doldu; sessizce veri kesilmedi.")
+        # Commit the observation only after all checks pass. A failed read must
+        # not mark the source read and hide it from a subsequent retry.
+        self.file_hashes[candidate.file] = digest
+        self.read_candidates.add(candidate_id)
         added = []
         for number, row in new_lines:
             item = SourceLine(f"L{len(self.lines) + 1}", candidate.file, number, row)
@@ -248,7 +304,7 @@ class EvidenceStore:
         return added
 
     def unread_claim_helpers(self, checks):
-        """Locate directly called, same-module helpers named in supported claims.
+        """Locate direct local/imported helpers named in supported claims.
 
         Locators are not evidence. Dynamic calls and import aliases are not
         resolved here; the normal research tools remain available for those.
@@ -286,6 +342,24 @@ class EvidenceStore:
                     if missing is not None:
                         candidates.append(self._candidate(
                             file, missing, 'İddiada anılan yardımcının okunmamış kodu: ' + node.name).id)
+                imported_calls = {ast.unparse(node.func) for node in ast.walk(block)
+                                  if isinstance(node, ast.Call)
+                                  and isinstance(node.func, (ast.Name, ast.Attribute))
+                                  and (getattr(node.func, 'id', None) or node.func.attr) in mentioned
+                                  and ast.unparse(node.func).split('.')[0] not in bound}
+                for other_file, name in _import_targets(file, tree, imported_calls):
+                    try:
+                        other_tree = ast.parse(self._path(other_file).read_text(encoding='utf-8'))
+                    except (SyntaxError, UnicodeError, OSError):
+                        continue
+                    for node in other_tree.body:
+                        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name != name:
+                            continue
+                        missing = next((number for number in range(node.lineno, node.end_lineno + 1)
+                                        if (other_file, number) not in observed), None)
+                        if missing is not None:
+                            candidates.append(self._candidate(other_file, missing,
+                                'İçe aktarılan yardımcının okunmamış kodu: ' + name).id)
         return list(dict.fromkeys(candidates))[:4]
 
     def unread_claim_values(self, checks):
@@ -349,38 +423,35 @@ class EvidenceStore:
                                            'İddiada kullanılan değerin okunmamış tanımı: '
                                            + ', '.join(sorted(names & needed)))
                     candidates.append(item.id)
-                remaining_needed = needed - found_names
-                if remaining_needed:
-                    for root, directories, files in os.walk(tools.PROJECT_ROOT):
-                        directories[:] = [d for d in directories if d not in tools.EXCLUDED_DIRECTORIES and not d.startswith('.')]
-                        for file_name in sorted(files):
-                            if file_name.startswith("test_") or not file_name.endswith(".py") or file_name.endswith("_test.py"):
-                                continue
-                            other_path = Path(root) / file_name
-                            if tools._resolve_safe_path(other_path) is None:
-                                continue
-                            rel_other = str(other_path.relative_to(tools.PROJECT_ROOT))
-                            if rel_other == file:
-                                continue
-                            try:
-                                other_tree = ast.parse(other_path.read_text(encoding='utf-8'))
-                            except (SyntaxError, UnicodeError, OSError):
-                                continue
-                            for statement in other_tree.body:
-                                if not isinstance(statement, (ast.Assign, ast.AnnAssign)) or statement.value is None:
-                                    continue
-                                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
-                                names = {node.id for target in targets for node in ast.walk(target)
-                                         if isinstance(node, ast.Name)}
-                                if not names & remaining_needed:
-                                    continue
-                                if all((rel_other, number) in observed
-                                       for number in range(statement.lineno, statement.end_lineno + 1)):
-                                    continue
-                                item = self._candidate(rel_other, statement.lineno,
-                                                       'İddiada kullanılan değerin okunmamış tanımı: '
-                                                       + ', '.join(sorted(names & remaining_needed)))
-                                candidates.append(item.id)
+                # Only follow actual import bindings. Matching a constant by
+                # name anywhere in the repo can silently select another module.
+                try:
+                    block = ast.parse(textwrap.dedent(citation['quote']))
+                    references = {ast.unparse(node) for node in ast.walk(block)
+                                  if isinstance(node, (ast.Name, ast.Attribute))
+                                  and isinstance(node.ctx, ast.Load)
+                                  and (getattr(node, 'id', None) or node.attr) in mentioned}
+                    references = {name for name in references if name.split('.')[0] not in bound}
+                except SyntaxError:
+                    references = set()
+                for other_file, name in _import_targets(file, tree, references):
+                    try:
+                        other_tree = ast.parse(self._path(other_file).read_text(encoding='utf-8'))
+                    except (SyntaxError, UnicodeError, OSError):
+                        continue
+                    for statement in other_tree.body:
+                        if not isinstance(statement, (ast.Assign, ast.AnnAssign)) or statement.value is None:
+                            continue
+                        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+                        names = {part.id for target in targets for part in ast.walk(target)
+                                 if isinstance(part, ast.Name)}
+                        if name not in names:
+                            continue
+                        missing = next((number for number in range(statement.lineno, statement.end_lineno + 1)
+                                        if (other_file, number) not in observed), None)
+                        if missing is not None:
+                            candidates.append(self._candidate(other_file, missing,
+                                'İçe aktarılan değerin okunmamış tanımı: ' + name).id)
         return list(dict.fromkeys(candidates))
 
     def source_context(self):
@@ -549,6 +620,17 @@ class EvidenceStore:
             except SyntaxError:
                 continue
             func = expression.func if isinstance(expression, ast.Call) else None
+            try:
+                full_tree = ast.parse(self._path(call['file']).read_text(encoding='utf-8'))
+                imported = _import_targets(call['file'], full_tree, {ast.unparse(func)} if func else set())
+            except (SyntaxError, UnicodeError, OSError):
+                imported = []
+            for target_file, target_name in imported:
+                module = Path(target_file).with_suffix('').as_posix().replace('/', '.')
+                if module.endswith('.__init__'):
+                    module = module[:-len('.__init__')]
+                actions.extend(({'tool': 'find_file', 'query': target_file},
+                                {'tool': 'find_symbol', 'query': module + '.' + target_name}))
             if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
                 relative = Path(call['file']).parent / (func.value.id + '.py')
                 path = tools._resolve_safe_path(str(relative))
@@ -556,7 +638,8 @@ class EvidenceStore:
                     actions.extend(({'tool': 'find_file', 'query': relative.as_posix()},
                                     {'tool': 'find_symbol', 'query': func.attr}))
         for name in sorted(unresolved):
-            if (Path(tools.PROJECT_ROOT) / f"{name}.py").is_file():
+            target = tools._resolve_safe_path(f"{name}.py")
+            if target is not None and target.is_file():
                 actions.append({"tool": "find_file", "query": f"{name}.py"})
             actions.extend(({"tool": "find_symbol", "query": name},
                             {"tool": "search_code", "query": name}))
@@ -613,6 +696,8 @@ class EvidenceStore:
                     if not isinstance(node, (ast.Assign, ast.AnnAssign)):
                         continue
                     value = node.value
+                    if value is None:
+                        continue
                     literal_values = {
                         str(part.value) for part in ast.walk(value)
                         if isinstance(part, ast.Constant) and isinstance(part.value, str)
