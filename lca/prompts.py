@@ -69,6 +69,29 @@ DIAGNOSIS_REQUEST = """Write a diagnosis using ONLY the code above.
 Reply only with JSON."""
 
 
+PATCH_SYSTEM = """You are fixing a bug in a Python repository, based on a diagnosis.
+Make the smallest change that fixes the root cause.
+
+Rules:
+- Each edit replaces old_text with new_text in one file.
+- old_text must be copied EXACTLY from the code shown (same characters), a few
+  complete lines that appear only once. Do not include line numbers.
+- Keep everything else unchanged. Never rewrite a whole file. Never edit tests.
+- plan: 1-3 sentences: what you change and why it fixes the bug.
+Reply only with JSON."""
+
+
+def patch_task(issue, diagnosis, code, feedback=None):
+    evidence = "\n".join(f"- {e['file']}:{e['start_line']}-{e['end_line']}: {e['why']}"
+                         for e in diagnosis["evidence"])
+    text = (f"Bug report:\n{issue}\n\n"
+            f"Diagnosis:\n{diagnosis['root_cause']}\n\nEvidence:\n{evidence}\n\n"
+            f"Current code:\n{code}")
+    if feedback:
+        text += f"\n\n{feedback}"
+    return text + "\n\nPropose the fix."
+
+
 def diagnosis_feedback(problems):
     lines = "\n".join(f"- {p}" for p in problems)
     return ("Your diagnosis was rejected by the controller:\n" + lines +

@@ -43,6 +43,7 @@ def main(argv=None):
     parser.add_argument("--model")
     parser.add_argument("--name", help="result file name (default: model + time)")
     parser.add_argument("--set", nargs="*", metavar="KEY=VALUE", help="override Settings fields")
+    parser.add_argument("--no-fix", action="store_true", help="stop after the diagnosis")
     parser.add_argument("--rescore", metavar="NAME",
                         help="recompute metrics of a saved run (no model calls)")
     args = parser.parse_args(argv)
@@ -68,9 +69,16 @@ def main(argv=None):
     for issue in selected:
         workspace = issue_set.prepare(issue)
         print(f"\n=== {issue['id']}: {issue['title_tr']}", flush=True)
-        report = agent.run(issue["issue"], workspace, settings, auto_approve=True,
-                           on_step=lambda s: print(f"  [{s.number}] {s.call} ({s.status})", flush=True))
-        row = score(issue, report, workspace)
+        # auto_approve: the workspace is a throwaway copy made for this run only.
+        try:
+            report = agent.run(issue["issue"], workspace, settings, fix=not args.no_fix,
+                               auto_approve=True,
+                               on_step=lambda s: print(f"  [{s.number}] {s.call} ({s.status})",
+                                                       flush=True))
+            row = score(issue, report, workspace)
+        except Exception as error:  # one broken issue must not kill the whole evaluation
+            report = {"status": "crashed", "error": repr(error)}
+            row = {"retrieval": False, "diagnosis": False, "error": repr(error)}
         rows.append({"issue": issue["id"], "difficulty": issue["difficulty"],
                      "title": issue["title_tr"], "metrics": row, "report": report})
         print("  -> " + ", ".join(f"{k}={v}" for k, v in row.items()), flush=True)
@@ -91,7 +99,11 @@ def rescore(name):
     for row in payload["results"]:
         issue = issues_by_id[row["issue"]]
         workspace = issue_set.prepare(issue)  # same bug -> same line numbers
-        row["metrics"] = score(issue, row["report"], workspace)
+        # Rescoring cannot re-create the patched files, so tests are not re-run.
+        old_tests = row["metrics"].get("tests_pass")
+        row["metrics"] = score(issue, row["report"], workspace, run_tests=False)
+        row["metrics"]["tests_pass"] = old_tests
+        row["metrics"]["autonomous"] = bool(old_tests) if old_tests is not None else None
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
     (RESULTS / f"{name}.md").write_text(render_markdown(payload))
     print(render_markdown(payload))
