@@ -13,7 +13,7 @@ class ReadOnlyToolTests(unittest.TestCase):
         self.assertIn('Sembol bulunamadı', tools.find_symbol('NonexistentOwner.assert_unchanged'))
 
     def test_project_root_is_based_on_tools_file(self):
-        self.assertEqual(tools.PROJECT_ROOT.name, "local-coding-agent")
+        self.assertEqual(tools.PROJECT_ROOT.name, "legacy")
         self.assertTrue((tools.PROJECT_ROOT / "tools.py").is_file())
 
     def test_outside_path_is_rejected(self):
