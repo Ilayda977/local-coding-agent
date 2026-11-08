@@ -9,9 +9,21 @@
     "replace": "                and task.due_date < today)\n"
   },
   "ground_truth": {
-    "relevant_files": ["tasks/service.py"],
+    "relevant_files": [
+      "tasks/service.py"
+    ],
     "root_cause": "TaskService.is_overdue only compares the due date with today and does not check the task status, so DONE tasks are counted as overdue.",
-    "fix": "Add `task.status != Status.DONE` to the condition in is_overdue."
+    "fix": "Add `task.status != Status.DONE` to the condition in is_overdue.",
+    "keywords": [
+      [
+        "is_overdue"
+      ],
+      [
+        "status",
+        "done",
+        "complete"
+      ]
+    ]
   },
   "failing_tests": [
     "tests/test_tasks.py::test_overdue_tasks_exclude_done"

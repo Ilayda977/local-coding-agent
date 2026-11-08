@@ -1,0 +1,855 @@
+{
+  "name": "step4_state_7b",
+  "settings": {
+    "model": "qwen2.5-coder:7b",
+    "host": "http://127.0.0.1:11434",
+    "num_ctx": 8192,
+    "temperature": 0.0,
+    "max_steps": 12,
+    "max_read_lines": 80,
+    "min_read_lines": 20,
+    "max_search_results": 30,
+    "max_observation_chars": 4000,
+    "max_evidence_retries": 1,
+    "max_changed_lines": 40,
+    "max_repairs": 2,
+    "test_timeout": 60,
+    "compact_history": true,
+    "keep_recent_observations": 3,
+    "request_timeout": 180
+  },
+  "results": [
+    {
+      "issue": "easy_01",
+      "difficulty": "easy",
+      "title": "Geçersiz e-posta adresiyle kayıt olunabiliyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": false,
+        "valid_patch": null,
+        "tests_pass": null,
+        "autonomous": null,
+        "steps": 7,
+        "prompt_tokens": 11228,
+        "seconds": 79.2,
+        "unsafe_or_invalid": 0
+      },
+      "report": {
+        "issue": "Users can register with clearly invalid email addresses such as `ali@` or `ali@example`. Registration should be rejected with a ValidationError when the address has no domain or no top-level domain.",
+        "model": "qwen2.5-coder:7b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_01",
+        "status": "diagnosed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function responsible for user registration.",
+            "call": "find_symbol(name='register')",
+            "observation": "Definitions of 'register':\nusers/service.py:13-20  def UserService.register\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the register function to understand its implementation.",
+            "call": "read_file(path='users/service.py', start_line=13, end_line=20)",
+            "observation": "users/service.py lines 7-26 of 57:\n 7 | class UserService:\n 8 |     def __init__(self, repository, ids, clock):\n 9 |         self._users = repository\n10 |         self._ids = ids\n11 |         self._clock = clock\n12 | \n13 |     def register(self, email, name, role=Role.MEMBER):\n14 |         email = normalize_email(email)\n15 |         name = require_text(name, \"name\", max_length=80)\n16 |         if self._users.list(lambda user: user.email == email):\n17 |             raise ConflictError(f\"email already registered: {email}\")\n18 |         user = User(id=self._ids.next(), email=email, name=name,\n19 |                     created_at=self._clock.now(), role=Role(role))\n20 |         return self._users.add(user)\n21 | \n22 |     def get(self, user_id):\n23 |         return self._users.get(user_id)\n24 | \n25 |     def get_by_email(self, email):\n26 |         email = normalize_email(email)\n[widened from 13-20 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check the validation logic for email addresses.",
+            "call": "find_symbol(name='normalize_email')",
+            "observation": "Definitions of 'normalize_email':\ncommon/validation.py:22-27  def normalize_email\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Read the function that normalizes email addresses.",
+            "call": "read_file(path='common/validation.py', start_line=22, end_line=27)",
+            "observation": "common/validation.py lines 15-27 of 27:\n15 |     if not text:\n16 |         raise ValidationError(f\"{field} must not be empty\")\n17 |     if len(text) > max_length:\n18 |         raise ValidationError(f\"{field} must be at most {max_length} characters\")\n19 |     return text\n20 | \n21 | \n22 | def normalize_email(email):\n23 |     \"\"\"Lower-case and validate an email address.\"\"\"\n24 |     email = require_text(email, \"email\", max_length=254).lower()\n25 |     if \"@\" not in email:\n26 |         raise ValidationError(f\"invalid email address: {email}\")\n27 |     return email\n[widened from 22-27 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 5,
+            "thought": "The `normalize_email` function is responsible for validating the email address. It should ensure the email has a domain and a top-level domain.",
+            "call": "read_file(path='common/validation.py', start_line=1, end_line=27)",
+            "observation": "common/validation.py lines 1-27 of 27:\n 1 | \"\"\"Small input validation helpers used by the services.\"\"\"\n 2 | import re\n 3 | \n 4 | from common.errors import ValidationError\n 5 | \n 6 | # local-part@domain.tld — intentionally simple, but requires a dotted domain.\n 7 | EMAIL_PATTERN = re.compile(r\"^[^@\\s]+@[^@\\s]+\\.[A-Za-z]{2,}$\")\n 8 | \n 9 | \n10 | def require_text(value, field, max_length=200):\n11 |     \"\"\"Return ``value`` stripped; reject empty or overly long text.\"\"\"\n12 |     if value is None:\n13 |         raise ValidationError(f\"{field} is required\")\n14 |     text = str(value).strip()\n15 |     if not text:\n16 |         raise ValidationError(f\"{field} must not be empty\")\n17 |     if len(text) > max_length:\n18 |         raise ValidationError(f\"{field} must be at most {max_length} characters\")\n19 |     return text\n20 | \n21 | \n22 | def normalize_email(email):\n23 |     \"\"\"Lower-case and validate an email address.\"\"\"\n24 |     email = require_text(email, \"email\", max_length=254).lower()\n25 |     if \"@\" not in email:\n26 |         raise ValidationError(f\"invalid email address: {email}\")\n27 |     return email",
+            "status": "ok"
+          },
+          {
+            "number": 6,
+            "thought": "The `normalize_email` function is responsible for validating the email address. It should ensure the email has a domain and a top-level domain.",
+            "call": "read_file(path='common/validation.py', start_line=1, end_line=27)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 7,
+            "thought": "The `normalize_email` function is supposed to validate the email address, but it does not check for the domain or top-level domain. The `EMAIL_PATTERN` should be used for validation.",
+            "call": "read_file(path='common/validation.py', start_line=7, end_line=27)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that users can register with invalid email addresses such as `ali@` or `ali@example`. The expected behavior is that registration should be rejected with a ValidationError when the address has no domain or no top-level domain. However, the actual behavior is that the registration is not rejected, and the user is added to the repository.",
+          "issue_summary": "Invalid email addresses are not being rejected during user registration.",
+          "root_cause": "The `normalize_email` function in `common/validation.py` does not correctly validate email addresses with no domain or no top-level domain. The regular expression `EMAIL_PATTERN` requires a domain with a top-level domain, but it does not check for the presence of a domain or top-level domain.",
+          "relevant_files": [
+            "common/validation.py",
+            "users/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "common/validation.py",
+              "start_line": 7,
+              "end_line": 7,
+              "why": "The regular expression does not allow for email addresses with no domain or no top-level domain.",
+              "code": "7 | EMAIL_PATTERN = re.compile(r\"^[^@\\s]+@[^@\\s]+\\.[A-Za-z]{2,}$\")"
+            },
+            {
+              "file": "users/service.py",
+              "start_line": 14,
+              "end_line": 14,
+              "why": "The `normalize_email` function is called, but it does not validate the email address correctly.",
+              "code": "14 |         email = normalize_email(email)"
+            }
+          ],
+          "confidence": "high"
+        },
+        "files_read": [
+          "users/service.py",
+          "common/validation.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 8,
+          "prompt_tokens": 11228,
+          "output_tokens": 667,
+          "max_prompt_tokens": 1840,
+          "seconds": 79.0,
+          "invalid_replies": 0,
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 4411,
+              "prompt_tokens": 1042,
+              "output_tokens": 29,
+              "seconds": 5.74,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 4758,
+              "prompt_tokens": 1124,
+              "output_tokens": 48,
+              "seconds": 4.36,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5639,
+              "prompt_tokens": 1380,
+              "output_tokens": 30,
+              "seconds": 4.07,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5995,
+              "prompt_tokens": 1462,
+              "output_tokens": 48,
+              "seconds": 5.54,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6492,
+              "prompt_tokens": 1613,
+              "output_tokens": 66,
+              "seconds": 7.58,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7171,
+              "prompt_tokens": 1814,
+              "output_tokens": 66,
+              "seconds": 8.25,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7261,
+              "prompt_tokens": 1840,
+              "output_tokens": 76,
+              "seconds": 10.16,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 3679,
+              "prompt_tokens": 953,
+              "output_tokens": 304,
+              "seconds": 33.32,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 79.2
+      }
+    },
+    {
+      "issue": "easy_02",
+      "difficulty": "easy",
+      "title": "Önceliğe göre sıralamada acil görevler en altta",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": false,
+        "valid_patch": null,
+        "tests_pass": null,
+        "autonomous": null,
+        "steps": 5,
+        "prompt_tokens": 7480,
+        "seconds": 114.7,
+        "unsafe_or_invalid": 0
+      },
+      "report": {
+        "issue": "When I list a project's tasks sorted by priority, URGENT tasks appear at the bottom and LOW tasks at the top. The most important tasks should come first.",
+        "model": "qwen2.5-coder:7b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_02",
+        "status": "diagnosed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function responsible for sorting tasks by priority.",
+            "call": "find_symbol(name='sort_tasks')",
+            "observation": "Definitions of 'sort_tasks':\ntasks/queries.py:48-51  def sort_tasks\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the definition of sort_tasks to understand how it sorts tasks.",
+            "call": "read_file(path='tasks/queries.py', start_line=48, end_line=51)",
+            "observation": "tasks/queries.py lines 40-59 of 75:\n40 |     # Most important first; older tasks first among equal priorities.\n41 |     \"priority\": lambda task: (task.priority, task.created_at),\n42 |     # Tasks without a due date go last.\n43 |     \"due_date\": lambda task: (task.due_date is None, task.due_date or date.max, -task.priority),\n44 |     \"created\": lambda task: task.created_at,\n45 | }\n46 | \n47 | \n48 | def sort_tasks(tasks, by=\"priority\"):\n49 |     if by not in SORT_KEYS:\n50 |         raise ValidationError(f\"unknown sort key: {by}\")\n51 |     return sorted(tasks, key=SORT_KEYS[by])\n52 | \n53 | \n54 | @dataclass\n55 | class Page:\n56 |     items: list\n57 |     page: int\n58 |     per_page: int\n59 |     total: int\n[widened from 48-51 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "The sort logic is defined here. Next, check the values it depends on.",
+            "call": "read_file(path='tasks/queries.py', start_line=1, end_line=20)",
+            "observation": "tasks/queries.py lines 1-20 of 75:\n 1 | \"\"\"Filtering, sorting and pagination of task lists.\"\"\"\n 2 | import math\n 3 | from dataclasses import dataclass\n 4 | from datetime import date\n 5 | from typing import Optional\n 6 | \n 7 | from common.errors import ValidationError\n 8 | from tasks.models import Priority, Status\n 9 | \n10 | MAX_PER_PAGE = 100\n11 | \n12 | \n13 | @dataclass\n14 | class TaskFilter:\n15 |     status: Optional[Status] = None\n16 |     assignee_id: Optional[str] = None\n17 |     min_priority: Optional[Priority] = None\n18 |     text: Optional[str] = None\n19 | \n20 | \n[Used elsewhere in this file: MAX_PER_PAGE at line 70 (in paginate), MAX_PER_PAGE at line 71 (in paginate)]",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "The sort logic is defined in sort_tasks. Next, read the values it depends on.",
+            "call": "read_file(path='tasks/queries.py', start_line=1, end_line=20)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 5,
+            "thought": "The sort logic is defined in sort_tasks. Next, read the values it depends on.",
+            "call": "read_file(path='tasks/queries.py', start_line=1, end_line=20)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that URGENT tasks appear at the bottom and LOW tasks at the top when sorting by priority. The code sorts tasks by priority and created_at date, but the priority sorting is incorrect. The lambda function for priority sorting returns a tuple (task.priority, task.created_at), which means that tasks with the same priority are sorted by their creation date. However, the bug report expects URGENT tasks to appear first, regardless of their creation date. The lambda function for due_date sorting is also incorrect, as it sorts tasks without a due date last, which is not the expected behavior.",
+          "issue_summary": "Tasks are not being sorted by priority correctly, with URGENT tasks appearing at the bottom and LOW tasks at the top.",
+          "root_cause": "The lambda function for priority sorting is incorrect. It returns a tuple (task.priority, task.created_at), which means that tasks with the same priority are sorted by their creation date. However, the bug report expects URGENT tasks to appear first, regardless of their creation date.",
+          "relevant_files": [
+            "tasks/queries.py"
+          ],
+          "evidence": [
+            {
+              "file": "tasks/queries.py",
+              "start_line": 40,
+              "end_line": 42,
+              "why": "This lambda function is used for sorting tasks by priority. It returns a tuple (task.priority, task.created_at), which means that tasks with the same priority are sorted by their creation date. However, the bug report expects URGENT tasks to appear first, regardless of their creation date.",
+              "code": "40 |     # Most important first; older tasks first among equal priorities.\n41 |     \"priority\": lambda task: (task.priority, task.created_at),\n42 |     # Tasks without a due date go last."
+            },
+            {
+              "file": "tasks/queries.py",
+              "start_line": 43,
+              "end_line": 43,
+              "why": "This lambda function is used for sorting tasks by due_date. It sorts tasks without a due date last, which is not the expected behavior.",
+              "code": "43 |     \"due_date\": lambda task: (task.due_date is None, task.due_date or date.max, -task.priority),"
+            }
+          ],
+          "confidence": "high"
+        },
+        "files_read": [
+          "tasks/queries.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 6,
+          "prompt_tokens": 7480,
+          "output_tokens": 666,
+          "max_prompt_tokens": 1599,
+          "seconds": 114.5,
+          "invalid_replies": 0,
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 4366,
+              "prompt_tokens": 1038,
+              "output_tokens": 32,
+              "seconds": 14.49,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 4701,
+              "prompt_tokens": 1126,
+              "output_tokens": 53,
+              "seconds": 13.0,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5413,
+              "prompt_tokens": 1359,
+              "output_tokens": 55,
+              "seconds": 14.9,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6082,
+              "prompt_tokens": 1572,
+              "output_tokens": 57,
+              "seconds": 13.98,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6168,
+              "prompt_tokens": 1599,
+              "output_tokens": 57,
+              "seconds": 12.25,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 2905,
+              "prompt_tokens": 786,
+              "output_tokens": 412,
+              "seconds": 45.9,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 114.7
+      }
+    },
+    {
+      "issue": "easy_03",
+      "difficulty": "easy",
+      "title": "Engellenmiş görev tekrar başlatılamıyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": true,
+        "valid_patch": null,
+        "tests_pass": null,
+        "autonomous": null,
+        "steps": 9,
+        "prompt_tokens": 16118,
+        "seconds": 124.0,
+        "unsafe_or_invalid": 0
+      },
+      "report": {
+        "issue": "A task that was marked BLOCKED cannot be moved back to IN_PROGRESS once the blocker is resolved; the service raises 'cannot move task from blocked to in_progress'. Resuming a blocked task should be allowed.",
+        "model": "qwen2.5-coder:7b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_03",
+        "status": "diagnosed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function that handles task status changes.",
+            "call": "find_symbol(name='change_status')",
+            "observation": "Definitions of 'change_status':\ntasks/service.py:68-80  def TaskService.change_status\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that handles changing task status.",
+            "call": "read_file(path='tasks/service.py', start_line=68, end_line=80)",
+            "observation": "tasks/service.py lines 65-84 of 114:\n65 |                           assignee_id=assignee_id, actor_id=actor_id)\n66 |         return task\n67 | \n68 |     def change_status(self, task_id, actor_id, status):\n69 |         task = self._tasks.get(task_id)\n70 |         self._editable_project(task.project_id, actor_id)\n71 |         status = Status(status)\n72 |         workflow.ensure_transition(task.status, status)\n73 |         old_status = task.status\n74 |         task.status = status\n75 |         if status == Status.DONE:\n76 |             task.completed_at = self._clock.now()\n77 |         self._touch(task)\n78 |         self._bus.publish(events.TASK_STATUS_CHANGED, task_id=task.id,\n79 |                           old_status=old_status, new_status=status, actor_id=actor_id)\n80 |         return task\n81 | \n82 |     def reopen(self, task_id, actor_id):\n83 |         task = self._tasks.get(task_id)\n84 |         self._editable_project(task.project_id, actor_id)\n[widened from 68-80 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Identify where the BLOCKED status is handled.",
+            "call": "search_code(query='BLOCKED')",
+            "observation": "7 matches for 'BLOCKED':\ntasks/models.py:10 (in Status): BLOCKED = \"blocked\"\ntasks/workflow.py:6: BLOCKED ◄──┘  └──── (changes requested)\ntasks/workflow.py:14: Status.TODO: {Status.IN_PROGRESS, Status.BLOCKED},\ntasks/workflow.py:15: Status.IN_PROGRESS: {Status.TODO, Status.BLOCKED, Status.IN_REVIEW},\ntasks/workflow.py:16: Status.BLOCKED: {Status.TODO},\ntests/test_workflow.py:16 (in test_blocked_task_can_resume): def test_blocked_task_can_resume(app, project, bob):\ntests/test_workflow.py:19 (in test_blocked_task_can_resume): app.tasks.change_status(task.id, bob.id, Status.BLOCKED)",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Read the definition of BLOCKED in tasks/models.py.",
+            "call": "read_file(path='tasks/models.py', start_line=10, end_line=15)",
+            "observation": "tasks/models.py lines 3-22 of 36:\n 3 | from enum import Enum, IntEnum\n 4 | from typing import Optional\n 5 | \n 6 | \n 7 | class Status(str, Enum):\n 8 |     TODO = \"todo\"\n 9 |     IN_PROGRESS = \"in_progress\"\n10 |     BLOCKED = \"blocked\"\n11 |     IN_REVIEW = \"in_review\"\n12 |     DONE = \"done\"\n13 | \n14 | \n15 | class Priority(IntEnum):\n16 |     \"\"\"Higher number means more important.\"\"\"\n17 |     LOW = 1\n18 |     MEDIUM = 2\n19 |     HIGH = 3\n20 |     URGENT = 4\n21 | \n22 | \n[widened from 10-15 to give context]\n[Used elsewhere in this file: Status at line 32 (in Task), Priority at line 33 (in Task)]",
+            "status": "ok"
+          },
+          {
+            "number": 5,
+            "thought": "Locate the workflow logic that handles transitions between task statuses.",
+            "call": "find_symbol(name='ensure_transition')",
+            "observation": "Definitions of 'ensure_transition':\ntasks/workflow.py:26-31  def ensure_transition\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 6,
+            "thought": "Read the function that ensures transitions are allowed.",
+            "call": "read_file(path='tasks/workflow.py', start_line=26, end_line=31)",
+            "observation": "tasks/workflow.py lines 19-31 of 31:\n19 | }\n20 | \n21 | \n22 | def can_transition(current, target):\n23 |     return Status(target) in ALLOWED_TRANSITIONS[Status(current)]\n24 | \n25 | \n26 | def ensure_transition(current, target):\n27 |     current, target = Status(current), Status(target)\n28 |     if current == target:\n29 |         raise ValidationError(f\"task is already {current.value}\")\n30 |     if not can_transition(current, target):\n31 |         raise ValidationError(f\"cannot move task from {current.value} to {target.value}\")\n[widened from 26-31 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 7,
+            "thought": "Check the definition of ALLOWED_TRANSITIONS to see if BLOCKED to IN_PROGRESS is allowed.",
+            "call": "read_file(path='tasks/workflow.py', start_line=1, end_line=10)",
+            "observation": "tasks/workflow.py lines 1-20 of 31:\n 1 | \"\"\"Allowed task status transitions.\n 2 | \n 3 |     TODO ──► IN_PROGRESS ──► IN_REVIEW ──► DONE\n 4 |       │  ▲       │  ▲            │\n 5 |       ▼  │       ▼  │            ▼\n 6 |       BLOCKED ◄──┘  └──── (changes requested)\n 7 | \n 8 | A DONE task can only come back through ``TaskService.reopen``.\n 9 | \"\"\"\n10 | from common.errors import ValidationError\n11 | from tasks.models import Status\n12 | \n13 | ALLOWED_TRANSITIONS = {\n14 |     Status.TODO: {Status.IN_PROGRESS, Status.BLOCKED},\n15 |     Status.IN_PROGRESS: {Status.TODO, Status.BLOCKED, Status.IN_REVIEW},\n16 |     Status.BLOCKED: {Status.TODO},\n17 |     Status.IN_REVIEW: {Status.IN_PROGRESS, Status.DONE},\n18 |     Status.DONE: set(),\n19 | }\n20 | \n[widened from 1-10 to give context]\n[Used elsewhere in this file: ALLOWED_TRANSITIONS at line 23 (in can_transition)]",
+            "status": "ok"
+          },
+          {
+            "number": 8,
+            "thought": "Understand the current transition logic.",
+            "call": "read_file(path='tasks/workflow.py', start_line=1, end_line=31)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 9,
+            "thought": "Understand the current transition logic.",
+            "call": "read_file(path='tasks/workflow.py', start_line=1, end_line=31)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that a task marked BLOCKED cannot be moved back to IN_PROGRESS once the blocker is resolved. The service raises 'cannot move task from blocked to in_progress'. However, the code does not explicitly handle the transition from BLOCKED to IN_PROGRESS. The `ensure_transition` function in `tasks/workflow.py` does not allow this transition, as it is not listed in the `ALLOWED_TRANSITIONS` dictionary for the BLOCKED status.",
+          "issue_summary": "A task marked BLOCKED cannot be moved back to IN_PROGRESS once the blocker is resolved, raising a 'cannot move task from blocked to in_progress' error.",
+          "root_cause": "The `ensure_transition` function in `tasks/workflow.py` does not allow the transition from BLOCKED to IN_PROGRESS because it is not listed in the `ALLOWED_TRANSITIONS` dictionary for the BLOCKED status.",
+          "relevant_files": [
+            "tasks/workflow.py"
+          ],
+          "evidence": [
+            {
+              "file": "tasks/workflow.py",
+              "start_line": 14,
+              "end_line": 19,
+              "why": "The `ALLOWED_TRANSITIONS` dictionary does not include the transition from BLOCKED to IN_PROGRESS.",
+              "code": "14 |     Status.TODO: {Status.IN_PROGRESS, Status.BLOCKED},\n15 |     Status.IN_PROGRESS: {Status.TODO, Status.BLOCKED, Status.IN_REVIEW},\n16 |     Status.BLOCKED: {Status.TODO},\n17 |     Status.IN_REVIEW: {Status.IN_PROGRESS, Status.DONE},\n18 |     Status.DONE: set(),\n19 | }"
+            }
+          ],
+          "confidence": "high"
+        },
+        "files_read": [
+          "tasks/service.py",
+          "tasks/models.py",
+          "tasks/workflow.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 10,
+          "prompt_tokens": 16118,
+          "output_tokens": 671,
+          "max_prompt_tokens": 2196,
+          "seconds": 123.8,
+          "invalid_replies": 0,
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 4419,
+              "prompt_tokens": 1046,
+              "output_tokens": 31,
+              "seconds": 2.99,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 4796,
+              "prompt_tokens": 1136,
+              "output_tokens": 48,
+              "seconds": 5.26,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5737,
+              "prompt_tokens": 1395,
+              "output_tokens": 32,
+              "seconds": 5.54,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6630,
+              "prompt_tokens": 1650,
+              "output_tokens": 50,
+              "seconds": 10.82,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6571,
+              "prompt_tokens": 1682,
+              "output_tokens": 34,
+              "seconds": 7.6,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6933,
+              "prompt_tokens": 1766,
+              "output_tokens": 49,
+              "seconds": 9.13,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 7387,
+              "prompt_tokens": 1902,
+              "output_tokens": 58,
+              "seconds": 12.44,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 8211,
+              "prompt_tokens": 2169,
+              "output_tokens": 46,
+              "seconds": 16.23,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 8298,
+              "prompt_tokens": 2196,
+              "output_tokens": 46,
+              "seconds": 15.16,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 4334,
+              "prompt_tokens": 1176,
+              "output_tokens": 277,
+              "seconds": 38.6,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 124.0
+      }
+    },
+    {
+      "issue": "easy_04",
+      "difficulty": "easy",
+      "title": "Tamamlanmış görevler gecikmiş listesinde görünüyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": true,
+        "valid_patch": null,
+        "tests_pass": null,
+        "autonomous": null,
+        "steps": 5,
+        "prompt_tokens": 7485,
+        "seconds": 77.2,
+        "unsafe_or_invalid": 0
+      },
+      "report": {
+        "issue": "Tasks that are already DONE still show up in the project's overdue task list if their due date has passed. Completed tasks should never be reported as overdue.",
+        "model": "qwen2.5-coder:7b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_04",
+        "status": "diagnosed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function responsible for marking tasks as overdue.",
+            "call": "find_symbol(name='is_overdue')",
+            "observation": "Definitions of 'is_overdue':\ntasks/service.py:96-100  def TaskService.is_overdue\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that checks if a task is overdue.",
+            "call": "read_file(path='tasks/service.py', start_line=96, end_line=100)",
+            "observation": "tasks/service.py lines 89-108 of 113:\n 89 |         task.completed_at = None\n 90 |         self._touch(task)\n 91 |         self._bus.publish(events.TASK_STATUS_CHANGED, task_id=task.id,\n 92 |                           old_status=old_status, new_status=task.status, actor_id=actor_id)\n 93 |         return task\n 94 | \n 95 |     # -- queries -----------------------------------------------------------\n 96 |     def is_overdue(self, task, today=None):\n 97 |         \"\"\"A task is overdue when its due date has passed and it is not done.\"\"\"\n 98 |         today = today or self._clock.now().date()\n 99 |         return (task.due_date is not None\n100 |                 and task.due_date < today)\n101 | \n102 |     def overdue_tasks(self, project_id, user_id):\n103 |         self._projects.get_for_user(project_id, user_id)\n104 |         return [task for task in self._tasks.list(lambda t: t.project_id == project_id)\n105 |                 if self.is_overdue(task)]\n106 | \n107 |     def search(self, project_id, user_id, task_filter=None, sort_by=\"priority\",\n108 |                page=1, per_page=20):\n[widened from 96-100 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check where the `is_overdue` method is called.",
+            "call": "search_code(query='is_overdue')",
+            "observation": "3 matches for 'is_overdue':\ntasks/service.py:96 (in TaskService.is_overdue): def is_overdue(self, task, today=None):\ntasks/service.py:105 (in TaskService.overdue_tasks): if self.is_overdue(task)]\ntests/test_tasks.py:50 (in test_task_due_today_is_not_overdue): assert not app.tasks.is_overdue(task)",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Check the logic that determines if a task is overdue.",
+            "call": "read_file(path='tasks/service.py', start_line=96, end_line=100)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 5,
+            "thought": "Check the logic that determines if a task is overdue.",
+            "call": "read_file(path='tasks/service.py', start_line=96, end_line=100)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that tasks that are already DONE still show up in the project's overdue task list if their due date has passed. Completed tasks should never be reported as overdue. The actual behavior differs from the expected one because the `is_overdue` method does not check if the task is completed. The `overdue_tasks` method filters tasks based on the `is_overdue` method, which does not exclude completed tasks.",
+          "issue_summary": "Completed tasks are incorrectly reported as overdue in the project's overdue task list.",
+          "root_cause": "The `is_overdue` method does not check if the task is completed. The `overdue_tasks` method filters tasks based on the `is_overdue` method, which does not exclude completed tasks.",
+          "relevant_files": [
+            "tasks/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "tasks/service.py",
+              "start_line": 97,
+              "end_line": 101,
+              "why": "The `is_overdue` method does not check if the task is completed.",
+              "code": "97 |         \"\"\"A task is overdue when its due date has passed and it is not done.\"\"\"\n98 |         today = today or self._clock.now().date()\n99 |         return (task.due_date is not None\n100 |                 and task.due_date < today)\n101 | "
+            },
+            {
+              "file": "tasks/service.py",
+              "start_line": 102,
+              "end_line": 105,
+              "why": "The `overdue_tasks` method filters tasks based on the `is_overdue` method, which does not exclude completed tasks.",
+              "code": "102 |     def overdue_tasks(self, project_id, user_id):\n103 |         self._projects.get_for_user(project_id, user_id)\n104 |         return [task for task in self._tasks.list(lambda t: t.project_id == project_id)\n105 |                 if self.is_overdue(task)]"
+            }
+          ],
+          "confidence": "high"
+        },
+        "files_read": [
+          "tasks/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 6,
+          "prompt_tokens": 7485,
+          "output_tokens": 539,
+          "max_prompt_tokens": 1627,
+          "seconds": 77.0,
+          "invalid_replies": 0,
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 4372,
+              "prompt_tokens": 1035,
+              "output_tokens": 33,
+              "seconds": 9.19,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 4733,
+              "prompt_tokens": 1133,
+              "output_tokens": 51,
+              "seconds": 6.46,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5817,
+              "prompt_tokens": 1439,
+              "output_tokens": 44,
+              "seconds": 7.97,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6504,
+              "prompt_tokens": 1627,
+              "output_tokens": 51,
+              "seconds": 10.03,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 6243,
+              "prompt_tokens": 1562,
+              "output_tokens": 51,
+              "seconds": 8.42,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 2744,
+              "prompt_tokens": 689,
+              "output_tokens": 309,
+              "seconds": 34.98,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 77.2
+      }
+    },
+    {
+      "issue": "easy_05",
+      "difficulty": "easy",
+      "title": "Okundu işaretlenen bildirim, okunmamış sayısını azaltmıyor",
+      "metrics": {
+        "retrieval": true,
+        "diagnosis": true,
+        "valid_patch": null,
+        "tests_pass": null,
+        "autonomous": null,
+        "steps": 5,
+        "prompt_tokens": 6904,
+        "seconds": 76.1,
+        "unsafe_or_invalid": 0
+      },
+      "report": {
+        "issue": "After a user marks a notification as read, their unread notification count stays the same. The count (and the unread list) should only include notifications that have not been read.",
+        "model": "qwen2.5-coder:7b",
+        "repo": "/Users/ilayda/Documents/local-coding-agent/eval/workspace/easy_05",
+        "status": "diagnosed",
+        "steps": [
+          {
+            "number": 1,
+            "thought": "Find the function that handles marking a notification as read.",
+            "call": "find_symbol(name='mark_read')",
+            "observation": "Definitions of 'mark_read':\nnotifications/service.py:42-47  def NotificationService.mark_read\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 2,
+            "thought": "Read the function that marks a notification as read.",
+            "call": "read_file(path='notifications/service.py', start_line=42, end_line=47)",
+            "observation": "notifications/service.py lines 35-52 of 52:\n35 | \n36 |     def unread(self, user_id):\n37 |         return self.for_user(user_id)\n38 | \n39 |     def unread_count(self, user_id):\n40 |         return len(self.unread(user_id))\n41 | \n42 |     def mark_read(self, notification_id, user_id):\n43 |         notification = self._notifications.get(notification_id)\n44 |         if notification.user_id != user_id:\n45 |             raise PermissionDeniedError(\"cannot read another user's notification\")\n46 |         notification.read = True\n47 |         return self._notifications.update(notification)\n48 | \n49 |     def mark_all_read(self, user_id):\n50 |         for notification in self.unread(user_id):\n51 |             notification.read = True\n52 |             self._notifications.update(notification)\n[widened from 42-47 to give context]",
+            "status": "ok"
+          },
+          {
+            "number": 3,
+            "thought": "Check where the notification count is calculated.",
+            "call": "find_symbol(name='unread_count')",
+            "observation": "Definitions of 'unread_count':\nnotifications/service.py:39-40  def NotificationService.unread_count\nNext: read_file with that path and line range.",
+            "status": "ok"
+          },
+          {
+            "number": 4,
+            "thought": "Read the function that implements the reported behaviour.",
+            "call": "read_file(path='notifications/service.py', start_line=39, end_line=40)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          },
+          {
+            "number": 5,
+            "thought": "Check how the unread_count method is implemented.",
+            "call": "read_file(path='notifications/service.py', start_line=39, end_line=40)",
+            "observation": "You already made this exact call; its result is above. Pick the most promising file:line from earlier results and read it with read_file (about 20 lines around it), or call finish if you already read the cause.",
+            "status": "repeated"
+          }
+        ],
+        "rejected_evidence": 0,
+        "stop_reason": "stuck: repeated the same call",
+        "diagnosis": {
+          "analysis": "The bug report states that after a user marks a notification as read, their unread notification count stays the same. The count (and the unread list) should only include notifications that have not been read. Tracing the scenario through the code, the `unread_count` method calls `self.unread(user_id)`, which returns all notifications for the user, regardless of whether they are read or not. The `unread_count` method then returns the length of this list, which includes both read and unread notifications. This is why the unread notification count does not decrease after marking a notification as read.",
+          "issue_summary": "The unread notification count does not decrease after marking a notification as read because the `unread` method returns all notifications for the user, including both read and unread ones.",
+          "root_cause": "The `unread` method does not filter out read notifications, causing the `unread_count` method to include read notifications in the count.",
+          "relevant_files": [
+            "notifications/service.py"
+          ],
+          "evidence": [
+            {
+              "file": "notifications/service.py",
+              "start_line": 35,
+              "end_line": 37,
+              "why": "The `unread` method returns all notifications for the user, including both read and unread ones.",
+              "code": "35 | \n36 |     def unread(self, user_id):\n37 |         return self.for_user(user_id)"
+            },
+            {
+              "file": "notifications/service.py",
+              "start_line": 40,
+              "end_line": 42,
+              "why": "The `unread_count` method returns the length of the list returned by `self.unread(user_id)`, which includes both read and unread notifications.",
+              "code": "40 |         return len(self.unread(user_id))\n41 | \n42 |     def mark_read(self, notification_id, user_id):"
+            }
+          ],
+          "confidence": "high"
+        },
+        "files_read": [
+          "notifications/service.py"
+        ],
+        "blocked_paths": [],
+        "usage": {
+          "model_calls": 6,
+          "prompt_tokens": 6904,
+          "output_tokens": 556,
+          "max_prompt_tokens": 1418,
+          "seconds": 76.0,
+          "invalid_replies": 0,
+          "calls": [
+            {
+              "stage": "research",
+              "prompt_chars": 4394,
+              "prompt_tokens": 1039,
+              "output_tokens": 33,
+              "seconds": 8.53,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 4779,
+              "prompt_tokens": 1129,
+              "output_tokens": 49,
+              "seconds": 6.13,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5566,
+              "prompt_tokens": 1330,
+              "output_tokens": 30,
+              "seconds": 5.59,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5952,
+              "prompt_tokens": 1418,
+              "output_tokens": 48,
+              "seconds": 7.83,
+              "ok": true
+            },
+            {
+              "stage": "research",
+              "prompt_chars": 5848,
+              "prompt_tokens": 1401,
+              "output_tokens": 48,
+              "seconds": 7.44,
+              "ok": true
+            },
+            {
+              "stage": "diagnosis",
+              "prompt_chars": 2468,
+              "prompt_tokens": 587,
+              "output_tokens": 348,
+              "seconds": 40.44,
+              "ok": true
+            }
+          ]
+        },
+        "seconds": 76.1
+      }
+    }
+  ]
+}

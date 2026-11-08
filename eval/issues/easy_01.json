@@ -9,9 +9,24 @@
     "replace": "    if \"@\" not in email:\n"
   },
   "ground_truth": {
-    "relevant_files": ["common/validation.py"],
+    "relevant_files": [
+      "common/validation.py"
+    ],
     "root_cause": "normalize_email only checks that the string contains '@' instead of matching EMAIL_PATTERN, so addresses without a dotted domain are accepted.",
-    "fix": "Use EMAIL_PATTERN.match(email) in normalize_email."
+    "fix": "Use EMAIL_PATTERN.match(email) in normalize_email.",
+    "keywords": [
+      [
+        "normalize_email"
+      ],
+      [
+        "email_pattern",
+        "pattern",
+        "regex",
+        "match",
+        "'@'",
+        "\"@\""
+      ]
+    ]
   },
   "failing_tests": [
     "tests/test_users.py::test_register_rejects_invalid_email[a li@example.com]",

@@ -47,7 +47,16 @@ def main(argv=None):
 
     if not args.json:
         print(f"Model: {settings.model} | repo: {Path(args.repo).resolve()}")
-    report = agent.run(args.issue, args.repo, settings, on_step=on_step, on_token=on_token)
+    def on_event(kind, data):
+        if args.json:
+            return
+        if kind == "diagnosis_rejected":
+            print("\n" + _style(BOLD, "Diagnosis rejected by the controller:", color))
+            for problem in data:
+                print(f"  - {problem}")
+
+    report = agent.run(args.issue, args.repo, settings, on_step=on_step, on_token=on_token,
+                       events=on_event)
 
     if args.save:
         Path(args.save).write_text(json.dumps(report, indent=2, ensure_ascii=False))
@@ -60,6 +69,19 @@ def main(argv=None):
 
 def _print_summary(report, color):
     usage = report["usage"]
+    diagnosis = report.get("diagnosis")
+    if diagnosis:
+        print("\n" + _style(BOLD, "== Diagnosis ==", color))
+        print(f"issue: {diagnosis['issue_summary']}")
+        print(f"root cause: {diagnosis['root_cause']}")
+        print(f"files: {', '.join(diagnosis['relevant_files'])}")
+        for ev in diagnosis["evidence"]:
+            print(f"- {ev['file']}:{ev['start_line']}-{ev['end_line']}  {ev['why']}")
+            # This code comes from disk (controller), not from the model.
+            print(_style(DIM, "\n".join("    " + line for line in ev["code"].splitlines()), color))
+        print(f"confidence (model's own guess, not a probability): {diagnosis['confidence']}")
+    for problem in report.get("diagnosis_problems", []):
+        print(f"! {problem}")
     print("\n" + _style(BOLD, "== Summary ==", color))
     print(f"status: {report['status']}  ({report.get('stop_reason', '')})")
     print(f"files read: {', '.join(report['files_read']) or '-'}")

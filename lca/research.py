@@ -13,6 +13,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 from lca import prompts
+from lca.context import state_messages
 from lca.tools import TOOL_NAMES, ToolError, relevant_args, run_tool
 
 # Handwritten JSON schema for one action. Ollama uses it to constrain decoding,
@@ -20,7 +21,9 @@ from lca.tools import TOOL_NAMES, ToolError, relevant_args, run_tool
 ACTION_SCHEMA = {
     "type": "object",
     "properties": {
-        "thought": {"type": "string"},
+        # maxLength: a rambling thought once used up the token budget and the
+        # JSON was cut in half. The grammar now stops it at 200 characters.
+        "thought": {"type": "string", "maxLength": 200},
         "tool": {"type": "string", "enum": TOOL_NAMES},
         "args": {
             "type": "object",
@@ -74,6 +77,8 @@ class Research:
     steps: list = field(default_factory=list)
     finished: bool = False
     stop_reason: str = ""
+    seen_calls: set = field(default_factory=set)
+    notes: list = field(default_factory=list)  # controller feedback (compact mode)
 
     def count(self, status):
         return sum(1 for step in self.steps if step.status == status)
@@ -85,18 +90,49 @@ def shorten(text, limit):
     return text[:limit] + f"\n[... {len(text) - limit} more characters cut; read a smaller range]"
 
 
-def run_research(issue, repo, llm, settings, on_step=None, compactor=None):
-    """Let the model explore until it calls finish or runs out of steps."""
-    messages = [
+def _already_read(repo, action):
+    """A read_file whose lines are all already known counts as a repeat."""
+    if action.tool != "read_file":
+        return False
+    args = action.clean_args()
+    if "path" not in args or not args.get("start_line") or not args.get("end_line"):
+        return False
+    return repo.was_read(args["path"], args["start_line"], args["end_line"])
+
+
+def start_research(issue, repo):
+    """The opening conversation: rules + bug report + repository map."""
+    return Research(messages=[
         {"role": "system", "content": prompts.RESEARCH_SYSTEM},
         {"role": "user", "content": prompts.research_task(issue, repo.repo_map())},
-    ]
-    research = Research(messages=messages)
-    seen_calls = set()
+    ])
 
-    for number in range(1, settings.max_steps + 1):
-        visible = compactor(messages) if compactor else messages
-        action = llm.chat_json(visible, ACTION_SCHEMA, "research", Action, num_predict=256)
+
+def run_research(issue, repo, llm, settings, on_step=None,
+                 research=None, feedback=None, max_steps=None):
+    """Let the model explore until it calls finish or runs out of steps.
+
+    Called a second time with ``research`` + ``feedback`` it *continues* the same
+    investigation; that is how a rejected diagnosis sends the agent back to read more.
+    """
+    if research is None:
+        research = start_research(issue, repo)
+    messages = research.messages
+    if feedback:
+        messages.append({"role": "user", "content": feedback})
+        research.notes.append(feedback)
+        research.finished = False
+    seen_calls = research.seen_calls
+    first = len(research.steps) + 1
+    budget = max_steps or settings.max_steps
+
+    for number in range(first, first + budget):
+        # Full chat history, or a compact state summary (Phase 5, see context.py).
+        if settings.compact_history:
+            visible = state_messages(issue, repo, research)
+        else:
+            visible = messages
+        action = llm.chat_json(visible, ACTION_SCHEMA, "research", Action, num_predict=400)
         call = action.call_text()
         key = (action.tool, json.dumps(action.clean_args(), sort_keys=True))
 
@@ -108,11 +144,13 @@ def run_research(issue, repo, llm, settings, on_step=None, compactor=None):
                 research.steps.append(step)
                 if on_step:
                     on_step(step)
+                # Keep the finish in the history so the conversation stays coherent.
+                messages.append({"role": "assistant", "content": action.model_dump_json()})
                 break
             # Guardrail: "finish" without reading code would mean guessing.
             observation, status = ("You have not read any code yet. Use find_symbol/search_code "
                                    "and read_file before finishing."), "refused"
-        elif key in seen_calls:
+        elif key in seen_calls or _already_read(repo, action):
             # Tell the model what to do instead, not only what not to do.
             observation, status = ("You already made this exact call; its result is above. "
                                    "Pick the most promising file:line from earlier results and "
@@ -130,13 +168,15 @@ def run_research(issue, repo, llm, settings, on_step=None, compactor=None):
         research.steps.append(step)
         if on_step:
             on_step(step)
-        messages.append({"role": "assistant", "content": action.model_dump_json(exclude_none=True)})
+        messages.append({"role": "assistant", "content": json.dumps(
+            {"thought": action.thought, "tool": action.tool, "args": action.clean_args()})})
         messages.append({"role": "user", "content": f"Result of {call}:\n{observation}"})
 
-        # Three useless replies in a row means the model is stuck: stop cleanly.
-        if [s.status for s in research.steps[-3:]] == ["repeated"] * 3:
+        # Two useless replies in a row: the model has nothing new to look at.
+        # Stop cleanly; the diagnosis step will use what was already read.
+        if [s.status for s in research.steps[-2:]] == ["repeated"] * 2:
             research.stop_reason = "stuck: repeated the same call"
             break
     else:
-        research.stop_reason = f"step budget ({settings.max_steps}) used up"
+        research.stop_reason = f"step budget ({budget}) used up"
     return research

@@ -116,6 +116,7 @@ def test_read_file_past_the_end(repo):
 
 
 def test_read_log_tracks_exact_ranges(repo):
+    repo.min_read_lines = 1  # no widening, so we can check exact ranges
     repo.read_file("pkg/service.py", 1, 4)
     assert repo.was_read("pkg/service.py", 3, 4)
     assert not repo.was_read("pkg/service.py", 3, 6)
@@ -149,3 +150,30 @@ def test_relevant_args_drops_noise_and_fixes_swapped_names():
     assert relevant_args("search_code", {"query": "x", "start_line": 1, "end_line": None}) == {"query": "x"}
     assert relevant_args("search_code", {"name": "x"}) == {"query": "x"}
     assert relevant_args("finish", {"path": "a.py"}) == {}
+
+
+def test_tiny_reads_are_widened_to_the_enclosing_function(tmp_path):
+    body = ["X = 1", ""] + [f"# filler {n}" for n in range(30)] + [
+        "def target(a):", "    b = a + X", "    c = b * 2", "    d = c - 1", "    return d", ""]
+    (tmp_path / "m.py").write_text("\n".join(body) + "\n")
+    repo = Repo(tmp_path, min_read_lines=3)
+    result = repo.read_file("m.py", 35, 35)
+    assert "lines 33-37" in result and "widened from 35-35" in result
+
+
+def test_read_shows_related_definitions_and_uses(repo):
+    repo.min_read_lines = 1
+    result = repo.read_file("pkg/service.py", 4, 5)
+    assert "Defined elsewhere in this file: LIMIT (lines 1-1)" in result
+    result = repo.read_file("pkg/service.py", 1, 1)
+    assert "Used elsewhere in this file: LIMIT at line 5 (in Service.run)" in result
+
+
+def test_code_pack_merges_reads_per_file(repo):
+    repo.min_read_lines = 1
+    repo.read_file("pkg/service.py", 1, 1)
+    repo.read_file("pkg/service.py", 4, 5)
+    repo.read_file("pkg/service.py", 5, 5)  # duplicate line appears once
+    pack = repo.code_pack()
+    assert pack.splitlines() == ["### pkg/service.py", "1 | LIMIT = 3", "   ...",
+                                 "4 |     def run(self, items):", "5 |         return items[:LIMIT]"]

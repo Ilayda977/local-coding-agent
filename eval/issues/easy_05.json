@@ -9,9 +9,28 @@
     "replace": "        return self.for_user(user_id)\n"
   },
   "ground_truth": {
-    "relevant_files": ["notifications/service.py"],
+    "relevant_files": [
+      "notifications/service.py"
+    ],
     "root_cause": "NotificationService.unread returns every notification of the user without filtering out read ones; unread_count is derived from it, so it never decreases.",
-    "fix": "Filter the list in unread(): [n for n in self.for_user(user_id) if not n.read]."
+    "fix": "Filter the list in unread(): [n for n in self.for_user(user_id) if not n.read].",
+    "keywords": [
+      [
+        "unread"
+      ],
+      [
+        "filter",
+        "all notifications",
+        "includes read",
+        "not n.read",
+        "already read",
+        "marked as read",
+        "read notifications",
+        "read ones",
+        "including those",
+        "regardless"
+      ]
+    ]
   },
   "failing_tests": [
     "tests/test_notifications.py::test_mark_read_decreases_unread_count"
