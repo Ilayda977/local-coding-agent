@@ -40,14 +40,21 @@ def get_issue(issue_id):
     raise SystemExit(f"unknown issue: {issue_id}")
 
 
+def bug_parts(issue):
+    """An issue's bug is one replacement or a list of them (multi-file bugs)."""
+    bug = issue["bug"]
+    return bug if isinstance(bug, list) else [bug]
+
+
 def apply_bug(workspace, bug):
-    """Inject the bug; the 'find' text must occur exactly once."""
-    target = workspace / bug["file"]
-    source = target.read_text()
-    count = source.count(bug["find"])
-    if count != 1:
-        raise ValueError(f"{bug['file']}: bug text found {count} times, expected 1")
-    target.write_text(source.replace(bug["find"], bug["replace"]))
+    """Inject the bug; every 'find' text must occur exactly once."""
+    for part in (bug if isinstance(bug, list) else [bug]):
+        target = workspace / part["file"]
+        source = target.read_text()
+        count = source.count(part["find"])
+        if count != 1:
+            raise ValueError(f"{part['file']}: bug text found {count} times, expected 1")
+        target.write_text(source.replace(part["find"], part["replace"]))
 
 
 def prepare(issue, dest=None):

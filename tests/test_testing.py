@@ -7,7 +7,7 @@ from lca import agent
 from lca.llm import LLMError
 from lca.testing import run_tests, validate_targets
 from lca.tools import Repo, ToolError
-from tests.conftest import make_llm
+from tests.conftest import OVERDUE, make_llm
 from tests.fakes import act
 from tests.test_patching import DIAGNOSIS, OLD, OVERDUE_FIXED, inject_bug
 
@@ -52,7 +52,7 @@ def patch_reply(new_text, plan="fix"):
 
 
 def research_and_diagnosis():
-    return [act("read_file", path="tasks/service.py", start_line=90, end_line=110),
+    return [act("read_file", path="tasks/service.py", start_line=OVERDUE - 6, end_line=OVERDUE + 14),
             act("finish"), DIAGNOSIS]
 
 

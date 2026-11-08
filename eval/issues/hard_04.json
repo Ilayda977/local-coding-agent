@@ -1,0 +1,36 @@
+{
+  "id": "hard_04",
+  "difficulty": "hard",
+  "title_tr": "Görev başka birine atanınca bildirim eski atanana gidiyor",
+  "issue": "When a task is reassigned from Bob to Dave, Bob receives another 'You were assigned' notification and Dave receives nothing. The new assignee should be notified.",
+  "bug": [
+    {
+      "file": "tasks/service.py",
+      "find": "        task.assignee_id = assignee_id\n        self._touch(task)\n        self._bus.publish(events.TASK_ASSIGNED, task_id=task.id,\n                          assignee_id=task.assignee_id, actor_id=actor_id)\n",
+      "replace": "        self._bus.publish(events.TASK_ASSIGNED, task_id=task.id,\n                          assignee_id=task.assignee_id, actor_id=actor_id)\n        task.assignee_id = assignee_id\n        self._touch(task)\n"
+    }
+  ],
+  "ground_truth": {
+    "relevant_files": [
+      "tasks/service.py",
+      "notifications/dispatcher.py"
+    ],
+    "root_cause": "TaskService.assign publishes TASK_ASSIGNED with task.assignee_id before updating it, so the event carries the previous assignee and the dispatcher notifies the wrong user.",
+    "fix": "Update task.assignee_id before publishing (or publish assignee_id=assignee_id).",
+    "keywords": [
+      [
+        "assign"
+      ],
+      [
+        "before",
+        "previous",
+        "old",
+        "order",
+        "still"
+      ]
+    ]
+  },
+  "failing_tests": [
+    "tests/test_notifications.py::test_reassignment_notifies_the_new_assignee"
+  ]
+}

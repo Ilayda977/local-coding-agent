@@ -3,6 +3,8 @@ from datetime import datetime
 
 TASK_ASSIGNED = "task_assigned"
 TASK_COMPLETED = "task_completed"
+TASK_COMMENTED = "task_commented"
+MENTIONED = "mentioned"
 PROJECT_INVITE = "project_invite"
 
 

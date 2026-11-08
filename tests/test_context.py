@@ -3,7 +3,7 @@ from dataclasses import replace
 
 from lca.context import state_messages, summarize_step
 from lca.research import Step, run_research, start_research
-from tests.conftest import make_llm
+from tests.conftest import OVERDUE, make_llm
 from tests.fakes import act
 
 ISSUE = "Completed tasks still show up as overdue."
@@ -19,7 +19,7 @@ def test_summaries_are_one_line_and_reads_point_to_the_code_pack():
 
 def test_state_prompt_contains_history_code_and_only_latest_result(repo):
     research = start_research(ISSUE, repo)
-    repo.read_file("tasks/service.py", 96, 101)
+    repo.read_file("tasks/service.py", OVERDUE, OVERDUE + 5)
     research.steps = [
         Step(1, "", "search_code(query='overdue')", "2 matches for 'overdue':\nX\nY", "ok"),
         Step(2, "", "read_file(path='tasks/service.py')", "tasks/service.py lines 91-110 of 114:", "ok"),
@@ -36,7 +36,7 @@ def test_compact_mode_sends_two_messages_every_step(repo, settings):
     settings = replace(settings, compact_history=True)
     llm, client = make_llm(settings, [
         act("find_symbol", name="is_overdue"),
-        act("read_file", path="tasks/service.py", start_line=96, end_line=101),
+        act("read_file", path="tasks/service.py", start_line=OVERDUE, end_line=OVERDUE + 5),
         act("finish"),
     ])
     research = run_research(ISSUE, repo, llm, settings)

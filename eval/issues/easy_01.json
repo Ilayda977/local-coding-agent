@@ -29,7 +29,6 @@
     ]
   },
   "failing_tests": [
-    "tests/test_users.py::test_register_rejects_invalid_email[a li@example.com]",
     "tests/test_users.py::test_register_rejects_invalid_email[ali@]",
     "tests/test_users.py::test_register_rejects_invalid_email[ali@example]"
   ]

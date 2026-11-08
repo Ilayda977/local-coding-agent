@@ -5,7 +5,7 @@ import pytest
 
 from lca.llm import LLMError
 from lca.research import run_research
-from tests.conftest import make_llm
+from tests.conftest import OVERDUE, make_llm
 from tests.fakes import act
 
 ISSUE = "Completed tasks still show up as overdue."
@@ -14,7 +14,7 @@ ISSUE = "Completed tasks still show up as overdue."
 def test_happy_path_search_read_finish(repo, settings):
     llm, client = make_llm(settings, [
         act("find_symbol", name="is_overdue"),
-        act("read_file", path="tasks/service.py", start_line=100, end_line=115),
+        act("read_file", path="tasks/service.py", start_line=OVERDUE, end_line=OVERDUE + 15),
         act("finish"),
     ])
     research = run_research(ISSUE, repo, llm, settings)
@@ -96,8 +96,8 @@ def test_two_invalid_replies_raise(repo, settings):
 
 def test_rereading_known_lines_counts_as_repeat(repo, settings):
     llm, _ = make_llm(settings, [
-        act("read_file", path="tasks/service.py", start_line=90, end_line=110),
-        act("read_file", path="tasks/service.py", start_line=95, end_line=100),
+        act("read_file", path="tasks/service.py", start_line=OVERDUE - 6, end_line=OVERDUE + 14),
+        act("read_file", path="tasks/service.py", start_line=OVERDUE - 1, end_line=OVERDUE + 4),
         act("finish"),
     ])
     research = run_research(ISSUE, repo, llm, settings)

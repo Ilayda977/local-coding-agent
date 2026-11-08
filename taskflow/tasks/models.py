@@ -12,6 +12,10 @@ class Status(str, Enum):
     DONE = "done"
 
 
+# Work that still needs attention. Used by reports (e.g. workload).
+OPEN_STATUSES = frozenset({Status.TODO, Status.IN_PROGRESS, Status.BLOCKED, Status.IN_REVIEW})
+
+
 class Priority(IntEnum):
     """Higher number means more important."""
     LOW = 1

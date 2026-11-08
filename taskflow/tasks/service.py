@@ -15,6 +15,7 @@ class TaskService:
         self._ids = ids
         self._clock = clock
         self._bus = bus
+        bus.subscribe(events.PROJECT_MEMBER_REMOVED, self.on_member_removed)
 
     # -- helpers -----------------------------------------------------------
     def _editable_project(self, project_id, actor_id):
@@ -55,6 +56,10 @@ class TaskService:
     def get(self, task_id):
         return self._tasks.get(task_id)
 
+    def list_for_project(self, project_id, user_id):
+        self._projects.get_for_user(project_id, user_id)
+        return self._tasks.list(lambda t: t.project_id == project_id)
+
     def assign(self, task_id, actor_id, assignee_id):
         task = self._tasks.get(task_id)
         project = self._editable_project(task.project_id, actor_id)
@@ -62,8 +67,15 @@ class TaskService:
         task.assignee_id = assignee_id
         self._touch(task)
         self._bus.publish(events.TASK_ASSIGNED, task_id=task.id,
-                          assignee_id=assignee_id, actor_id=actor_id)
+                          assignee_id=task.assignee_id, actor_id=actor_id)
         return task
+
+    def on_member_removed(self, project_id, user_id, actor_id):
+        """Someone left the project: their open tasks there become unassigned."""
+        for task in self._tasks.list(lambda t: t.project_id == project_id):
+            if task.assignee_id == user_id:
+                task.assignee_id = None
+                self._touch(task)
 
     def change_status(self, task_id, actor_id, status):
         task = self._tasks.get(task_id)

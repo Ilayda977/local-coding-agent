@@ -1,7 +1,7 @@
 """Diagnosis grounding: the controller must catch unread, invented or vague evidence."""
 from lca import agent
 from lca.diagnosis import Diagnosis, Evidence, check, referenced_names
-from tests.conftest import make_llm
+from tests.conftest import OVERDUE, make_llm
 from tests.fakes import act
 
 ISSUE = "Completed tasks still show up as overdue."
@@ -12,14 +12,14 @@ def diagnosis(evidence, root_cause="`is_overdue` ignores the status.", files=("t
             "evidence": evidence, "confidence": "high"}
 
 
-def ev(file="tasks/service.py", start=97, end=101):
+def ev(file="tasks/service.py", start=OVERDUE + 1, end=OVERDUE + 5):
     return {"file": file, "start_line": start, "end_line": end, "why": "condition"}
 
 
 # --- check() on its own -------------------------------------------------------
 
 def test_grounded_diagnosis_passes_and_gets_real_code(repo):
-    repo.read_file("tasks/service.py", 95, 105)
+    repo.read_file("tasks/service.py", OVERDUE - 1, OVERDUE + 9)
     d = Diagnosis.model_validate(diagnosis([ev()]))
     assert check(d, repo) == []
     assert "and task.status != Status.DONE" in d.evidence[0].code  # copied from disk
@@ -32,7 +32,7 @@ def test_unread_lines_are_rejected(repo):
 
 
 def test_missing_file_and_bad_range_are_rejected(repo):
-    repo.read_file("tasks/service.py", 95, 105)
+    repo.read_file("tasks/service.py", OVERDUE - 1, OVERDUE + 9)
     d = Diagnosis.model_validate(diagnosis([ev(file="tasks/ghost.py"), ev(start=105, end=95)]))
     problems = check(d, repo)
     assert any("does not exist" in p for p in problems)
@@ -46,7 +46,7 @@ def test_whole_file_evidence_is_rejected(repo):
 
 
 def test_invented_function_names_are_rejected(repo):
-    repo.read_file("tasks/service.py", 95, 105)
+    repo.read_file("tasks/service.py", OVERDUE - 1, OVERDUE + 9)
     d = Diagnosis.model_validate(diagnosis([ev()], root_cause="`check_deadline()` is wrong."))
     assert any("check_deadline" in p for p in check(d, repo))
 
@@ -63,7 +63,7 @@ def test_referenced_names_extraction():
 
 
 def test_evidence_file_is_added_to_relevant_files(repo):
-    repo.read_file("tasks/service.py", 95, 105)
+    repo.read_file("tasks/service.py", OVERDUE - 1, OVERDUE + 9)
     d = Diagnosis.model_validate(diagnosis([ev()], files=[]))
     assert check(d, repo) == []
     assert d.relevant_files == ["tasks/service.py"]
@@ -74,7 +74,7 @@ def test_evidence_file_is_added_to_relevant_files(repo):
 def test_pipeline_produces_grounded_diagnosis(taskflow_copy, settings):
     llm, _ = make_llm(settings, [
         act("find_symbol", name="is_overdue"),
-        act("read_file", path="tasks/service.py", start_line=95, end_line=105),
+        act("read_file", path="tasks/service.py", start_line=OVERDUE - 1, end_line=OVERDUE + 9),
         act("finish"),
         diagnosis([ev()]),
     ])
@@ -89,7 +89,7 @@ def test_rejected_diagnosis_sends_agent_back_to_read(taskflow_copy, settings):
         act("read_file", path="tasks/service.py", start_line=1, end_line=20),
         act("finish"),
         diagnosis([ev()]),                       # cites lines 97-101: not read yet
-        act("read_file", path="tasks/service.py", start_line=95, end_line=105),
+        act("read_file", path="tasks/service.py", start_line=OVERDUE - 1, end_line=OVERDUE + 9),
         act("finish"),
         diagnosis([ev()]),                       # now grounded
     ])

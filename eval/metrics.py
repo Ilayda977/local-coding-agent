@@ -14,34 +14,38 @@ unsafe_or_invalid  refused paths + invalid model replies + rejected evidence/pat
 """
 
 
-def bug_lines(issue, workspace=None):
-    """Line numbers of the injected bug, as the agent saw them before any patch.
+def bug_locations(issue):
+    """(file, first_line, last_line) of every injected change, as the agent saw it.
 
-    Computed from the clean taskflow file with the bug applied in memory, so it
-    still works after the agent has (hopefully) fixed the workspace.
+    Computed from the clean taskflow files with the bug applied in memory, so it
+    still works after the agent has (hopefully) fixed the workspace. A pure
+    deletion is located at the line where the deleted code used to start.
     """
-    from issues import TASKFLOW  # eval/issues.py
-    bug = issue["bug"]
-    clean = (TASKFLOW / bug["file"]).read_text()
-    text = clean.replace(bug["find"], bug["replace"], 1)
-    offset = text.index(bug["replace"])
-    first = text.count("\n", 0, offset) + 1
-    last = first + max(bug["replace"].count("\n") - 1, 0)
-    return bug["file"], first, last
+    from issues import TASKFLOW, bug_parts  # eval/issues.py
+    texts, locations = {}, []
+    for part in bug_parts(issue):
+        file = part["file"]
+        clean = texts.get(file, (TASKFLOW / file).read_text())
+        offset = clean.index(part["find"])
+        texts[file] = clean.replace(part["find"], part["replace"], 1)
+        first = clean.count("\n", 0, offset) + 1
+        last = first + max(part["replace"].count("\n") - 1, 0)
+        locations.append((file, first, last))
+    return locations
 
 
 LINE_TOLERANCE = 2  # small models are often off by a line or two (e.g. cite a blank line)
 
 
-def evidence_hits_bug(issue, report, workspace):
-    """Does at least one evidence range point at (or right next to) the bug?"""
-    file, first, last = bug_lines(issue, workspace)
-    for ev in report["diagnosis"].get("evidence", []):
-        near = (ev["start_line"] <= last + LINE_TOLERANCE
-                and ev["end_line"] >= first - LINE_TOLERANCE)
-        # Evidence should point at the bug, not at a whole file.
-        if ev["file"] == file and near and ev["end_line"] - ev["start_line"] <= 40:
-            return True
+def evidence_hits_bug(issue, report, workspace=None):
+    """Does at least one evidence range point at (or right next to) a bug location?"""
+    for file, first, last in bug_locations(issue):
+        for ev in report["diagnosis"].get("evidence", []):
+            near = (ev["start_line"] <= last + LINE_TOLERANCE
+                    and ev["end_line"] >= first - LINE_TOLERANCE)
+            # Evidence should point at the bug, not at a whole file.
+            if ev["file"] == file and near and ev["end_line"] - ev["start_line"] <= 40:
+                return True
     return False
 
 

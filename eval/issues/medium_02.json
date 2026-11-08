@@ -1,0 +1,32 @@
+{
+  "id": "medium_02",
+  "difficulty": "medium",
+  "title_tr": "İş yükü raporu tamamlanmış görevleri de sayıyor",
+  "issue": "The workload report counts tasks that are already DONE, so people who finished their work still look busy. Only open tasks should be counted.",
+  "bug": [
+    {
+      "file": "tasks/models.py",
+      "find": "OPEN_STATUSES = frozenset({Status.TODO, Status.IN_PROGRESS, Status.BLOCKED, Status.IN_REVIEW})\n",
+      "replace": "OPEN_STATUSES = frozenset({Status.TODO, Status.IN_PROGRESS, Status.BLOCKED, Status.IN_REVIEW,\n                           Status.DONE})\n"
+    }
+  ],
+  "ground_truth": {
+    "relevant_files": [
+      "tasks/models.py",
+      "reports/stats.py"
+    ],
+    "root_cause": "OPEN_STATUSES in tasks/models.py includes Status.DONE; ProjectReports.workload counts tasks whose status is in OPEN_STATUSES, so done tasks are counted.",
+    "fix": "Remove Status.DONE from OPEN_STATUSES.",
+    "keywords": [
+      [
+        "open_statuses"
+      ],
+      [
+        "done"
+      ]
+    ]
+  },
+  "failing_tests": [
+    "tests/test_reports.py::test_workload_counts_only_open_tasks"
+  ]
+}

@@ -36,3 +36,15 @@ def test_deactivated_user_cannot_create_project(app, admin, bob):
     app.users.deactivate(bob.id, actor_id=admin.id)
     with pytest.raises(PermissionDeniedError):
         app.projects.create(bob.id, "Secret")
+
+
+def test_handle_defaults_to_email_local_part(app):
+    user = app.users.register("Bob.Smith@Example.com", "Bob")
+    assert user.handle == "bob.smith"
+    assert app.users.find_by_handle("@BOB.smith").id == user.id
+    assert app.users.find_by_handle("nobody") is None
+
+
+def test_duplicate_handle_is_rejected(app, alice):
+    with pytest.raises(ConflictError):
+        app.users.register("other@example.com", "Other", handle="Alice")

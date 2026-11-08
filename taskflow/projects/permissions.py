@@ -1,9 +1,9 @@
 """Project-level permission rules.
 
-* viewers can read,
+* viewers can read and comment,
 * editors can create and change tasks,
 * owners can additionally manage members and archive the project,
-* an archived project is read-only for everyone.
+* an archived project is read-only for everyone (no tasks, no comments).
 """
 from common.errors import PermissionDeniedError
 from projects.models import ProjectRole
@@ -17,6 +17,10 @@ def role_of(project, user_id):
 
 def can_view(project, user_id):
     return role_of(project, user_id) is not None
+
+
+def can_comment(project, user_id):
+    return not project.archived and can_view(project, user_id)
 
 
 def can_edit(project, user_id):

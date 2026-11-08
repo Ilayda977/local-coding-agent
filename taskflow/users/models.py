@@ -15,5 +15,6 @@ class User:
     email: str
     name: str
     created_at: datetime
+    handle: str = ""  # used for @mentions, always stored lower-case
     role: Role = Role.MEMBER
     active: bool = True

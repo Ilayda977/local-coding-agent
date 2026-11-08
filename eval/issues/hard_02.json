@@ -1,0 +1,33 @@
+{
+  "id": "hard_02",
+  "difficulty": "hard",
+  "title_tr": "Yeniden açılan görev ilerleme raporunda hâlâ tamamlanmış sayılıyor",
+  "issue": "After a DONE task is reopened, the project progress report still counts it as done, so the completion percentage is too high.",
+  "bug": [
+    {
+      "file": "tasks/service.py",
+      "find": "        task.status = Status.TODO\n        task.completed_at = None\n",
+      "replace": "        task.status = Status.TODO\n"
+    }
+  ],
+  "ground_truth": {
+    "relevant_files": [
+      "tasks/service.py",
+      "reports/stats.py"
+    ],
+    "root_cause": "ProjectReports.progress counts tasks with completed_at set as done, and TaskService.reopen no longer clears completed_at, so reopened tasks still look done.",
+    "fix": "Set task.completed_at = None in reopen.",
+    "keywords": [
+      [
+        "reopen"
+      ],
+      [
+        "completed_at"
+      ]
+    ]
+  },
+  "failing_tests": [
+    "tests/test_reports.py::test_reopened_task_is_no_longer_done",
+    "tests/test_tasks.py::test_done_sets_completed_at_and_reopen_clears_it"
+  ]
+}

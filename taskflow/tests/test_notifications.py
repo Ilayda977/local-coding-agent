@@ -65,3 +65,30 @@ def test_email_skipped_during_quiet_hours(app, project, alice, bob, clock):
 @pytest.mark.parametrize("hour, expected", [(23, True), (2, True), (7, False), (12, False)])
 def test_quiet_hours_wrap_past_midnight(hour, expected):
     assert in_quiet_hours(Preferences(quiet_hours=(22, 7)), hour) is expected
+
+
+def test_reassignment_notifies_the_new_assignee(app, project, alice, bob):
+    carol = app.users.register("dave@taskflow.dev", "Dave")
+    app.projects.add_member(project.id, alice.id, carol.id)
+    task = app.tasks.create(project.id, alice.id, "Handover", assignee_id=bob.id)
+    app.tasks.assign(task.id, alice.id, carol.id)
+    assigned = lambda user: [n for n in app.notifications.unread(user.id)
+                             if n.kind == models.TASK_ASSIGNED]
+    assert len(assigned(carol)) == 1
+    assert len(assigned(bob)) == 1  # only the original assignment
+
+
+def test_deactivated_users_receive_nothing(app, project, admin, alice, bob):
+    task = app.tasks.create(project.id, alice.id, "Ship it", assignee_id=bob.id)
+    app.projects.add_member(project.id, alice.id, admin.id)
+    app.users.deactivate(alice.id, actor_id=admin.id)
+    before = app.notifications.unread_count(alice.id)
+    for status in (Status.IN_PROGRESS, Status.IN_REVIEW, Status.DONE):
+        app.tasks.change_status(task.id, bob.id, status)
+    app.comments.add(task.id, bob.id, "Done, thanks @alice")
+    assert app.notifications.unread_count(alice.id) == before
+
+
+def test_quiet_hours_are_stored_as_given(app, bob):
+    app.preferences.set_quiet_hours(bob.id, 22, 7)
+    assert app.preferences.get(bob.id).quiet_hours == (22, 7)

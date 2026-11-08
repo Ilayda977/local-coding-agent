@@ -1,0 +1,36 @@
+{
+  "id": "medium_01",
+  "difficulty": "medium",
+  "title_tr": "Büyük harfle yazılan @mention bildirim göndermiyor",
+  "issue": "Mentioning a user in a task comment with different capitalisation, e.g. '@Bob' instead of '@bob', does not notify them and they are not recorded as mentioned. Mentions should be case-insensitive.",
+  "bug": [
+    {
+      "file": "users/service.py",
+      "find": "    return str(handle or \"\").strip().lstrip(\"@\").lower()\n",
+      "replace": "    return str(handle or \"\").strip().lstrip(\"@\")\n"
+    }
+  ],
+  "ground_truth": {
+    "relevant_files": [
+      "users/service.py",
+      "comments/service.py"
+    ],
+    "root_cause": "normalize_handle no longer lower-cases the handle, so find_by_handle compares 'Bob' with the stored lower-case handle 'bob' and finds nobody; comments resolve mentions through find_by_handle.",
+    "fix": "Lower-case the handle in normalize_handle (.lower()).",
+    "keywords": [
+      [
+        "normalize_handle",
+        "find_by_handle"
+      ],
+      [
+        "lower",
+        "case"
+      ]
+    ]
+  },
+  "failing_tests": [
+    "tests/test_comments.py::test_mentions_are_case_insensitive",
+    "tests/test_users.py::test_duplicate_handle_is_rejected",
+    "tests/test_users.py::test_handle_defaults_to_email_local_part"
+  ]
+}
