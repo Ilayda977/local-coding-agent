@@ -135,7 +135,12 @@ def _print_summary(report, color):
         print(f"! {problem}")
     patch = report.get("patch")
     if patch and patch.get("diff"):
-        print("\n" + _style(BOLD, "== Final diff ==", color))
+        if patch.get("rolled_back"):
+            # Say it loudly: this diff is what was tried, NOT what is on disk now.
+            title = "== Last attempted diff (ROLLED BACK: files are unchanged) =="
+        else:
+            title = "== Final diff (applied) =="
+        print("\n" + _style(BOLD, title, color))
         print(_colored_diff(patch["diff"], color))
     print("\n" + _style(BOLD, "== Summary ==", color))
     print(f"status: {report['status']}  ({report.get('stop_reason', '')})")

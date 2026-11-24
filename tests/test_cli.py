@@ -34,3 +34,12 @@ def test_missing_repo_gives_a_friendly_hint(capsys):
     err = capsys.readouterr().err
     assert code == 2
     assert "eval/issues.py prepare easy_99" in err
+
+
+def test_summary_says_when_the_diff_was_rolled_back(capsys):
+    report = {"status": "tests_failed", "files_read": [], "seconds": 1,
+              "usage": {"model_calls": 1, "prompt_tokens": 1, "max_prompt_tokens": 1},
+              "patch": {"diff": "-a\n+b\n", "rolled_back": True},
+              "tests": {"passed": False, "repairs": 2}}
+    cli._print_summary(report, color=False)
+    assert "ROLLED BACK: files are unchanged" in capsys.readouterr().out
