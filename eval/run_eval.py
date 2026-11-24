@@ -98,7 +98,7 @@ def rescore(name):
     issues_by_id = {i["id"]: i for i in issue_set.load_issues()}
     for row in payload["results"]:
         issue = issues_by_id[row["issue"]]
-        workspace = issue_set.prepare(issue)  # same bug -> same line numbers
+        workspace = None  # bug locations come from the clean taskflow; no copy needed
         # Rescoring cannot re-create the patched files, so tests are not re-run.
         old_tests = row["metrics"].get("tests_pass")
         row["metrics"] = score(issue, row["report"], workspace, run_tests=False)

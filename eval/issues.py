@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -85,16 +86,19 @@ def check():
     clean = failing_tests(TASKFLOW)
     print(f"clean taskflow: {'OK, all tests pass' if not clean else f'FAILING {sorted(clean)}'}")
     ok &= not clean
-    for issue in load_issues():
-        workspace = prepare(issue)
-        actual = failing_tests(workspace)
-        expected = set(issue["failing_tests"])
-        good = actual == expected
-        ok &= good
-        print(f"{issue['id']}: {'OK' if good else 'MISMATCH'} ({len(actual)} failing) - {issue['title_tr']}")
-        if not good:
-            print(f"    expected: {sorted(expected)}\n    actual:   {sorted(actual)}")
-        shutil.rmtree(workspace)
+    # A private temp folder: checking the dataset must never touch the
+    # eval/workspace/<id> copies a person may be experimenting with.
+    with tempfile.TemporaryDirectory(prefix="lca-check-") as tmp:
+        for issue in load_issues():
+            workspace = prepare(issue, Path(tmp) / issue["id"])
+            actual = failing_tests(workspace)
+            expected = set(issue["failing_tests"])
+            good = actual == expected
+            ok &= good
+            print(f"{issue['id']}: {'OK' if good else 'MISMATCH'} ({len(actual)} failing) - "
+                  f"{issue['title_tr']}")
+            if not good:
+                print(f"    expected: {sorted(expected)}\n    actual:   {sorted(actual)}")
     return ok
 
 
