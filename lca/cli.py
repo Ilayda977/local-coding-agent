@@ -33,6 +33,16 @@ def main(argv=None):
     settings = load_settings(model=args.model)
     color = sys.stdout.isatty() and not args.json
 
+    # Check the folder before starting the model: a friendly message instead of
+    # a traceback (the most common mistake is forgetting `eval/issues.py prepare`).
+    repo_path = Path(args.repo)
+    if not repo_path.is_dir():
+        print(f"Error: repository folder not found: {repo_path.resolve()}", file=sys.stderr)
+        if "eval/workspace" in repo_path.as_posix():
+            print(f"Create it first:  ./venv/bin/python eval/issues.py prepare {repo_path.name}",
+                  file=sys.stderr)
+        return 2
+
     def on_token(text):
         # Streaming: show the model's reply as it is generated.
         if not args.json:

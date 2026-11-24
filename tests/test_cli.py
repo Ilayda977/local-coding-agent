@@ -27,3 +27,10 @@ def test_cli_does_not_apply_without_a_terminal(taskflow_copy, settings, monkeypa
     out = capsys.readouterr().out
     assert "NOT applied" in out and code == 1
     assert path.read_text() == before
+
+
+def test_missing_repo_gives_a_friendly_hint(capsys):
+    code = cli.main(["--repo", "eval/workspace/easy_99", "anything"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "eval/issues.py prepare easy_99" in err
