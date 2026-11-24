@@ -3,3 +3,9 @@ __pycache__/
 .DS_Store
 eval/workspace/
 .pytest_cache/
+
+# Kişisel öğrenme notları (yalnızca bu bilgisayarda)
+OGRENME_REHBERI.md
+YOL_HARITASI.md
+DEMO.md
+SUNUM.md

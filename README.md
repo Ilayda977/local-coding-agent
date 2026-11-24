@@ -8,9 +8,6 @@ Agent bir bug raporunu alır, repository'yi araçlarla keşfeder (bütün repoyu
 prompt'a yüklemez), kanıta dayalı bir diagnosis yazar, küçük bir patch önerir,
 **senin onayınla** uygular, testleri çalıştırır ve gerekirse en fazla iki kez onarır.
 
-> Ayrıntılı öğrenme rehberi: **[OGRENME_REHBERI.md](OGRENME_REHBERI.md)**
-> (her dosyanın ne işe yaradığı, neden böyle yazıldığı, ölçümler ve hata analizi).
-> Yol haritası ve ilerleme günlüğü: [YOL_HARITASI.md](YOL_HARITASI.md).
 > Eski mimari: [legacy/](legacy/) ve `legacy-v1` dalı.
 
 ## Mimari
@@ -43,8 +40,7 @@ flowchart TD
 | qwen2.5-coder:7b | 13/15 | 8/15 | 12/15 | **5/15** | 141 sn |
 | qwen2.5-coder:3b | 9/15 | 4/15 | 7/15 | 1/15 | 46 sn |
 
-Ayrıntı, context karşılaştırması ve başarısızlık analizi: [OGRENME_REHBERI.md §6–7](OGRENME_REHBERI.md).
-Demo senaryosu: [DEMO.md](DEMO.md), sunum taslağı: [SUNUM.md](SUNUM.md).
+Ayrıntılı tablolar: [eval/results/](eval/results/).
 
 ## Kurulum
 
